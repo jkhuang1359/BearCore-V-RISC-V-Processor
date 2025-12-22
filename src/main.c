@@ -1,5 +1,16 @@
 #include "test_reporter.h"
 
+#define UART_DATA    0x10000000
+#define UART_STATUS  0x10000004
+
+void uart_putc(char c) {
+    // UART 數據寄存器地址：0x10000000
+    volatile unsigned int *status = (volatile unsigned int *)UART_STATUS;
+    volatile unsigned int *data   = (volatile unsigned int *)UART_DATA;
+    while (*status & 1); 
+    *data = c;
+}
+
 // 🏆 字串反轉演算法
 void reverse_string(char *str) {
     int len = 0;

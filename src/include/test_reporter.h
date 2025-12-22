@@ -7,7 +7,8 @@
 // UART 函數聲明
 void uart_putc(char c);
 void uart_puts(const char *str);
-void uart_print_int(unsigned int n);
+void uart_print_hex(unsigned int n);
+void uart_print_decimal(unsigned int n);
 
 // 定時器相關函數
 void timer_interrupt_handler(void);

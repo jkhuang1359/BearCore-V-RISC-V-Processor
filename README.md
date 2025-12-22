@@ -13,58 +13,105 @@
     * **RAM**: 64KB 資料空間，支援位元組對齊存取 (LB/SB/LH/SH)。
 * **外設**: 整合 115200 波特率 UART 控制器，支援 MMIO 映射 (0x10000000)。
 
----
 
-## 📂 專案結構 (File Structure)
+## 快速開始
 
-```text
-.
-├── src/                # 硬體源碼與韌體
-│   ├── core.v          # CPU 頂層模組
-│   ├── alu.v           # 算術邏輯單元 (含 RV32M)
-│   ├── decoder.v       # 指令譯碼器
-│   ├── reg_file.v      # 暫存器堆 (32-regs)
-│   ├── data_ram.v      # 資料記憶體控制
-│   ├── rom.v           # 指令記憶體 (載入 hex)
-│   ├── uart_tx.v       # UART 發送模組
-│   ├── tb_top.v        # Testbench (含虛擬終端機)
-│   ├── main.c          # C 語言測試程式 (字串反轉演算法)
-│   └── start.s         # 啟動代碼 (Stack pointer 初始化)
-├── Makefile            # 編譯韌體工具
-├── link.ld             # 連結器腳本
-├── files.f             # iverilog 檔案清單
-└── riscv_ils.py        # Python 指令級模擬器 (Golden Model)
+### 1. 環境設置
+```bash
+# 安裝 RISC-V 工具鏈
+sudo apt-get install gcc-riscv64-unknown-elf
 
-🚦 如何啟動模擬 (How to Run)
-1. 編譯韌體 (需 RISC-V Toolchain)
-Bash
-
+# 安裝模擬工具
+sudo apt-get install iverilog gtkwave
+2. 編譯與運行
+bash
+# 編譯韌體
 make clean && make all
 
-2. 執行硬體模擬 (iverilog)
-Bash
+# 運行硬體模擬
+make sim
 
-# 使用 files.f 編譯並執行
+# 查看波形
+gtkwave cpu.vcd
+
+3. Python 指令級模擬
+bash
+python riscv_ils.py --rom firmware.hex --max-cycles 10000
+
+專案結構## 📂 專案結構 (File Structure)
+├── Makefile
+├── README.md
+├── cpu.vcd
+├── docs
+│   └── ARCHITECTURE.md
+├── files.f
+├── firmware.bin
+├── firmware.elf
+├── firmware.hex
+├── link.ld
+├── project_config.mk
+├── riscv_ils.py
+├── scripts
+│   └── run_simulation.sh
+├── src
+│   ├── alu.v
+│   ├── core.v
+│   ├── data_ram.v
+│   ├── decoder.v
+│   ├── include
+│   │   └── test_reporter.h
+│   ├── main.c
+│   ├── reg_file.v
+│   ├── rom.v
+│   ├── start.s
+│   ├── tb_top.v
+│   └── uart_tx.v
+├── tests
+│   ├── direct_test.s
+│   ├── jump_test.S
+│   ├── minimal.c
+│   ├── simplest.s
+│   ├── test.c
+│   ├── test.s
+│   ├── test_main.c
+│   ├── test_only_jump.s
+│   ├── test_reporter.c
+│   ├── timer_test.c
+│   └── trap_handler.c
+└── wave.vvp
+
+5 directories, 35 files
+
+性能指標
+CPI: 1.0 (理想流水線)
+
+最大頻率: 100MHz (估計)
+
+支援指令: RV32IM
+
+記憶體: 16KB ROM + 64KB RAM
+
+測試結果
+✓ 整數運算 ✓ 除法指令 ✓ 字串操作 ✓ UART輸出
+
+text
+
+### 5. **創建一個自動化腳本**
+```bash
+#!/bin/bash
+# scripts/run_all.sh
+
+echo "=== BearCore-V 完整測試流程 ==="
+echo "1. 編譯韌體..."
+make clean
+make all
+
+echo -e "\n2. 運行 Python 指令級模擬..."
+python riscv_ils.py --rom firmware.hex --max-cycles 50000
+
+echo -e "\n3. 運行 Verilog 模擬..."
 iverilog -g2012 -o wave.vvp -f files.f
 vvp wave.vvp
 
-3. 查看波形
-Bash
-
-gtkwave cpu.vcd
-
-📈 未來展望 (Future Work)
-[ ] 加入分支預測器 (Branch Predictor)。
-
-[ ] 實作 Timer 與外部中斷機制。
-
-[ ] 支援更多 CSR 暫存器以符合完整特權架構。
-
-### 3. 如何存入 Git？
-如果你還沒建立 Repo，可以執行以下指令：
-
-```bash
-git init
-git add README.md files.f src/ link.ld Makefile riscv_ils.py
-git commit -m "Initial commit: BearCore-V 5-stage pipeline with UART and String Reversal test"
-
+echo -e "\n4. 分析結果..."
+echo "如果看到 'Test OK' 和正確的反轉字串，測試通過！"
