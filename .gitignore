@@ -1,0 +1,27 @@
+# Verilog 模擬檔案
+*.vcd
+*.vvp
+*.log
+
+# 編譯生成的檔案
+firmware.bin
+firmware.elf
+firmware.hex
+*.o
+*.lst
+*.map
+
+# 可執行檔案和測試檔案
+sim_cpu
+simv*
+wave.vvp
+
+# 目錄
+build/
+obj/
+tests/sim_build/
+__pycache__/
+
+# 系統檔案
+.DS_Store
+*~
