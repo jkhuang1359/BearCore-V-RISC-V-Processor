@@ -6,3 +6,4 @@ src/reg_file.v
 src/rom.v
 src/data_ram.v
 src/uart_tx.v
+src/csr_registers.v

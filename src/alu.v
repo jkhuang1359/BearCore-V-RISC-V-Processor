@@ -20,7 +20,9 @@ module alu(
     localparam ALU_SLTU = 4'b0011; // RISC-V 標準碼
     localparam ALU_MUL  = 4'b1001; // 🏆 選一個沒用過的編碼    
     localparam ALU_DIV  = 4'b1010; 
-    localparam ALU_REM  = 4'b1011;   
+    localparam ALU_REM  = 4'b1011;
+    localparam ALU_CSR  = 4'b1110; // 🏆 新增：CSR 操作
+    localparam ALU_SYS  = 4'b1111; // 🏆 新增：系統調用
 
     integer i; 
 

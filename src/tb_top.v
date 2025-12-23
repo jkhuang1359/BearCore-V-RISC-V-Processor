@@ -30,7 +30,7 @@ module tb_top;
         #100 rst_n = 1;
         
         // 模擬時間：45ms 足以跑完目前的 Memory Test [cite: 180]
-        #40_000_000; 
+        #50_000_000; 
         
         $display("\nSimulation finished by timeout.");
         $finish;

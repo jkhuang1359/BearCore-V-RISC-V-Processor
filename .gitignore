@@ -1,9 +1,66 @@
-# .gitignore
+# 编译产物
 *.elf
 *.bin
 *.hex
 *.vvp
 *.vcd
+wave.vvp
+cpu.vcd
+firmware.*
 build/
-__pycache__/
-*.pyc
+output/
+
+# 仿真文件
+*.log
+*.fsdb
+*.vpd
+*.shm
+
+# 编辑器临时文件
+*.swp
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 备份文件
+*.backup.*
+*_old*
+*_bak*
+
+# 二进制文件
+*.o
+*.a
+*.so
+*.dll
+
+# 工具链生成文件
+*.d
+*.lst
+*.map
+
+# FPGA相关
+*.bit
+*.mcs
+*.prj
+*.xpr
+
+# ASIC相关
+*.gds
+*.lef
+*.def
+*.spef
+*.sdf
+
+# 日志文件
+*.log
+*.rpt
+
+# 临时目录
+/tmp/
+/temp/
+
+# 不要忽略文档和脚本
+!docs/
+!scripts/
