@@ -1,5 +1,12 @@
 # 🐻 BearCore-V - RISC-V 32位处理器核
 
+## 🛡️ 项目状态
+![版本](https://img.shields.io/badge/版本-v1.1.0-blue)
+![许可证](https://img.shields.io/badge/许可证-MIT-green)
+![RISC-V](https://img.shields.io/badge/RISC--V-RV32IM-red)
+![流水线](https://img.shields.io/badge/流水线-5级-orange)
+![测试](https://img.shields.io/badge/测试-通过-brightgreen)
+
 ## 🎯 项目简介
 BearCore-V 是一个基于RISC-V ISA的32位处理器核设计，支持RV32IM指令集和完整的M-mode特权架构。本项目实现了5级流水线、硬件乘除法器、完整的CSR子系统、中断/异常处理机制以及UART外设通信。
 
@@ -40,7 +47,7 @@ UART →│    外设接口 (MMIO)              │
 text
 
 ## 📂 项目结构
-my_riscv_core/
+BearCore-V/
 ├── src/ # RTL源代码
 │ ├── core.v # 处理器顶层模块
 │ ├── alu.v # 算术逻辑单元
@@ -62,6 +69,7 @@ my_riscv_core/
 ├── Makefile # 构建脚本
 └── README.md # 本文件
 
+text
 
 ## 🚀 快速开始
 
@@ -72,26 +80,20 @@ sudo apt-get install gcc-riscv64-unknown-elf
 
 # Verilog仿真器
 sudo apt-get install iverilog gtkwave
-
 编译和仿真
 bash
-# 1. 编译CSR测试程序
+# 1. 克隆项目
+git clone https://github.com/jkhuang1359/BearCore-V-RISC-V-Processor.git
+cd BearCore-V-RISC-V-Processor
+
+# 2. 编译CSR测试程序
 make csr_simple_test
 
-# 2. 运行CSR功能测试
+# 3. 运行CSR功能测试
 make test_csr_simple
 
-# 3. 编译除法测试程序
-make
-
-# 4. 运行完整仿真
-make sim
-
-生成波形
-bash
-# 运行仿真并生成波形
+# 4. 查看波形（可选）
 make wave
-
 ✅ 已验证功能
 核心功能
 RV32I基础指令集 (算术、逻辑、跳转、访存)
@@ -180,16 +182,23 @@ CSR实现
 向量: 可配置异常向量地址
 
 📊 资源使用估计
-模块	LUT数量	寄存器数量	说明
-核心流水线	~2000	~500	5级流水线控制
-CSR单元	~300	~128	CSR寄存器组
-ALU	~500	~64	含乘除法器
-寄存器文件	~1024	32×32	32个32位寄存器
-总线接口	~200	~64	内存和IO接口
-总计	~4000	~800	中等规模设计
+模块LUT数量寄存器数量说明
+核心流水线~2000~5005级流水线控制
+CSR单元~300~128CSR寄存器组
+ALU~500~64含乘除法器
+寄存器文件~102432×3232个32位寄存器
+总线接口~200~64内存和IO接口
+总计~4000~800中等规模设计
+🔧 开发工具链
+RTL设计: Verilog HDL
 
-🔍 仿真波形示例
-https://docs/images/waveform.png
+仿真: Icarus Verilog + GTKWave
+
+编译: RISC-V GCC工具链
+
+测试: 自定义指令级模拟器
+
+版本控制: Git + GitHub
 
 📚 文档索引
 设计文档 - 架构设计说明
@@ -198,7 +207,7 @@ https://docs/images/waveform.png
 
 用户指南 - 快速使用指南
 
-API参考 - CSR寄存器参考
+版本历史 - 版本变更记录
 
 🤝 贡献指南
 Fork本仓库
@@ -224,13 +233,12 @@ RISC-V国际基金会 - 开放的指令集架构
 📞 联系方式
 项目维护者: jiakuan
 
-邮箱: jkhuang135968@gmail.com
-
-GitHub: [@jkhuang1359]
+GitHub: @jkhuang1359
 
 ⭐ 项目状态
 开发状态: ✅ 核心功能完成
 验证状态: ✅ 测试通过
 维护状态: 🔧 活跃维护
+最新版本: v1.1.0
 
 最后更新: $(date)
