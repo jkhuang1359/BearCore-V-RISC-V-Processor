@@ -1,0 +1,6 @@
+simple_core.v: No such file or directory
+core_test.v:8: error: Unknown module type: simple_core
+2 error(s) during elaboration.
+*** These modules were missing:
+        simple_core referenced 1 times.
+***

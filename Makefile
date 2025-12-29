@@ -1,6 +1,6 @@
 # --- 1. 路徑與工具定義 ---
 PROJ_ROOT := $(shell pwd)
-SRC_DIR   := $(PROJ_ROOT)/src
+SRC_DIR   := $(PROJ_ROOT)/sw
 # 🏆 修正：明確指向 src/ 下的原始碼 
 SW_SOURCES := $(SRC_DIR)/start.s $(SRC_DIR)/main.c
 
@@ -20,7 +20,7 @@ WAVEVIEWER = gtkwave
 CFLAGS   = -march=rv32im -mabi=ilp32 -O0 -g -nostdlib -nostartfiles -ffreestanding
 INCLUDES = -I./src/include
 # 🏆 確保連結 link.ld 
-LDFLAGS  = -T link.ld -Wl,--gc-sections
+LDFLAGS  = -T sw/link.ld -Wl,--gc-sections
 
 # --- 3. 預設目標流程 ---
 # 順序：編譯 -> 反彙編 -> 佈局檢查 -> 動態內容檢查 -> 生成 HEX
@@ -48,7 +48,7 @@ check_size: firmware.elf
 all: firmware.hex disasm check_layout check_hex_dynamic check_size
 # --- 4. 韌體編譯規則 ---
 
-firmware.elf: $(SW_SOURCES) link.ld
+firmware.elf: $(SW_SOURCES) sw/link.ld
 	$(CC) $(CFLAGS) $(INCLUDES) -DSIMULATION $(SW_SOURCES) $(LDFLAGS) -o $@
 	@echo "✅ 編譯完成: firmware.elf"
 	$(SIZE) $@

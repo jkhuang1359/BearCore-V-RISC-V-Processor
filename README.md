@@ -61,5 +61,73 @@ BearCore-V 通過了一套包含 30 個測項的綜合測試套件 (30-in-1 Test
 2. 執行 `make clean && make all` 編譯硬體與韌體。
 3. 執行 `make sim` 啟動動態模擬驗證。
 
+## 📂 目錄結構 (Repository Structure)
+
+為了提升開發效率與代碼可讀性，BearCore-V 採用了結構化的目錄配置，將硬體電路、軟體韌體與驗證腳本清晰分離：
+
+```text
+BearCore-V-RISC-V-Processor/
+├── src/                # 🏆 核心硬體原始碼 (RTL Design)
+│   ├── core.v          # 處理器頂層模組
+│   ├── alu.v           # 算術邏輯單元
+│   ├── decoder.v       # 指令譯碼器
+│   ├── csr_registers.v # CSR 暫存器控制
+│   └── uart_tx.v       # 具備 BIST 功能的 UART 模組
+├── sw/                 # 🏆 軟體與韌體開發 (Software & Firmware)
+│   ├── main.c          # 30-in-1 綜合測試主程式
+│   ├── start.s         # 啟動代碼與例外向量表
+│   └── link.ld         # 記憶體分段連結腳本
+├── tests/              # 🏆 驗證與測試環境 (Verification)
+│   ├── bench/          # 硬體仿真 Testbench (tb_top.v)
+│   └── scripts/        # 各種自動化測試與除錯腳本 (*.sh)
+├── docs/               # 🏆 技術文件與反彙編報告
+│   └── PROJECT_COMPLETION.md
+├── assets/             # 🏆 README 展示資源 (Images/GIFs)
+│   └── bearcore_demo.gif
+├── riscv-compliance/   # 🏆 業界標準指令集相容性測試集
+├── Makefile            # 🏆 專案一鍵編譯與模擬腳本
+└── files.f             # 🏆 IVerilog 編譯清單
+
+### 🛠️ 硬體核心組成 (Hardware Core Components)
+
+`src/` 目錄下包含了實現 BearCore-V 處理器的所有關鍵 RTL 代碼：
+
+* **`core.v`**: 處理器頂層模組，負責五級流水線 (Pipeline) 的協調整合。
+* **`alu.v`**: 算術邏輯單元，支援 RV32I 基礎運算與 M-Extension 乘除法。
+* **`decoder.v`**: 指令譯碼器，將機器碼解析為各階段控制訊號。
+* **`reg_file.v`**: 通用暫存器組 (Registers x0-x31)。
+* **`csr_registers.v`**: 狀態與控制暫存器，處理中斷掩碼 (mie) 與例外跳轉位址。
+* **`rom.v`**: 指令記憶體 (Instruction ROM)，存放由 `firmware.hex` 載入的機器碼。
+* **`data_ram.v`**: 資料記憶體 (Data RAM)，支援 `lw/sw` 等訪存指令。
+* **`uart_tx.v`**: UART 發送模組，內建硬體自檢 (BIST) 邏輯。
+* **`uart_rx.v`**: UART 接收模組，支援非同步資料採樣與校驗。
+
+## 🤝 如何貢獻 (How to Contribute)
+
+我們非常歡迎任何形式的貢獻，無論是修復 Bug、增加新指令支援，或是優化模擬腳本！請參考以下步驟加入我們：
+
+### 1. Fork 本專案
+點擊頁面右上角的 **Fork** 按鈕，將倉庫複製到您的帳號下。
+
+### 2. 建立開發分支
+建議為您的改動建立一個獨立的分支：
+```bash
+git checkout -b feature/your-awesome-feature
+
+3. 開發與測試
+硬體改動：若修改了 src/ 下的 RTL，請務必更新 files.f。
+
+驗證要求：在提交 Pull Request 前，請確保執行 make sim 後，31 項測試必須全數通過 (PASS=31)。
+
+4. 提交 Pull Request (PR)
+請清楚描述您的修改動機與內容。
+
+若是修復 Bug，請附上 simulation.log 的截圖證明。
+
+📜 程式碼規範
+Verilog: 建議採用明確的非阻塞賦值 (<=) 處理時序邏輯。
+
+C/Firmware: 保持與 link.ld 的記憶體分段對齊。
+
 ---
 感謝小熊寶 AI 思路夥伴在開發過程中的協同除錯與架構建議。

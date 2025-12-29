@@ -1,0 +1,36 @@
+tb_uart_correct.v:35: error: Variable declaration in unnamed block requires SystemVerilog.
+tb_uart_correct.v:141: error: Variable declaration in unnamed block requires SystemVerilog.
+tb_uart_correct.v:163: syntax error
+uart_tx_correct.v:12: error: malformed statement
+uart_tx_correct.v:17: syntax error
+uart_tx_correct.v:17: Syntax in assignment statement l-value.
+uart_tx_correct.v:19: syntax error
+uart_tx_correct.v:19: error: malformed statement
+uart_tx_correct.v:20: syntax error
+uart_tx_correct.v:20: error: malformed statement
+uart_tx_correct.v:21: syntax error
+uart_tx_correct.v:21: error: malformed statement
+uart_tx_correct.v:22: syntax error
+uart_tx_correct.v:22: error: malformed statement
+uart_tx_correct.v:25: syntax error
+uart_tx_correct.v:25: error: malformed statement
+uart_tx_correct.v:26: syntax error
+uart_tx_correct.v:26: error: malformed statement
+uart_tx_correct.v:27: syntax error
+uart_tx_correct.v:28: Syntax in assignment statement l-value.
+uart_tx_correct.v:31: syntax error
+uart_tx_correct.v:33: Syntax in assignment statement l-value.
+uart_tx_correct.v:34: syntax error
+uart_tx_correct.v:34: Syntax in assignment statement l-value.
+uart_tx_correct.v:38: syntax error
+uart_tx_correct.v:40: Syntax in assignment statement l-value.
+uart_tx_correct.v:45: syntax error
+uart_tx_correct.v:48: Syntax in assignment statement l-value.
+uart_tx_correct.v:54: syntax error
+uart_tx_correct.v:57: Syntax in assignment statement l-value.
+uart_tx_correct.v:58: syntax error
+uart_tx_correct.v:59: Syntax in assignment statement l-value.
+uart_tx_correct.v:76: syntax error
+uart_tx_correct.v:83: error: malformed statement
+uart_tx_correct.v:86: syntax error
+I give up.
