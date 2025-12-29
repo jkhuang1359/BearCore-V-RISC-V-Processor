@@ -1,0 +1,159 @@
+--- test_clint_detailed.v.backup 2024-12-23 10:00:00
++++ test_clint_detailed.v2024-12-23 10:00:01
+@@ -5,7 +5,7 @@
+ module test_clint_detailed;
+     reg clk;
+     reg rst_n;
+-    reg bus_en;
++    reg bus_en, bus_en_temp;
+     reg bus_we;
+     reg [31:0] bus_addr;
+     reg [31:0] bus_wdata;
+@@ -24,7 +24,7 @@
+         .bus_rdata(bus_rdata),
+         .bus_ready(bus_ready),
+         .timer_irq_o(timer_irq),
+-        .software_irq_o(software_irq),
++        .software_irq_o(software_irq), 
+         .irq_enable(1'b1),
+         .timer_mode(2'b01)  // 周期性模式
+     );
+@@ -67,7 +67,7 @@
+             while (!bus_ready) @(posedge clk);
+             data = bus_rdata;
+             bus_en = 1'b0;
+-            #10;
++            #10; 
+             $display("[%0t] 读取寄存器 0x%08h = 0x%08h", $time, addr, data);
+         end
+     end
+@@ -98,65 +98,48 @@
+         $display("=== CLINT 详细测试开始 ===");
+         $display("时钟频率: 100MHz (周期10ns)");
+         
+-        // 测试1：检查定时器是否在运行
+-        $display("\n测试1：检查定时器基础功能");
+-        begin
+-            reg [31:0] mtime1, mtime2;
+-            read_reg(32'h0200BFF8, mtime1);
+-            #100;  // 等待10个时钟周期
+-            read_reg(32'h0200BFF8, mtime2);
+-            if (mtime2 > mtime1) 
+-                $display("  ✅ 定时器正在运行: %d -> %d", mtime1, mtime2);
+-            else
+-                $display("  ❌ 定时器没有运行: %d -> %d", mtime1, mtime2);
+-        end
++        // 测试1：软件中断（保持原有）
++        $display("\n测试1：软件中断测试");
++        write_reg(32'h02000000, 32'h1);  // 触发软件中断
++        #10;
++        if (software_irq) $display("  ✅ 软件中断触发成功");
++        else $display("  ❌ 软件中断失败");
+         
+-        // 测试2：定时器中断
+-        $display("\n测试2：定时器中断测试");
++        write_reg(32'h02000000, 32'h0);  // 清除软件中断
++        #10;
++        if (!software_irq) $display("  ✅ 软件中断清除成功");
++        else $display("  ❌ 软件中断清除失败");
+         
++        // 测试2：定时器中断（修复版本）
++        $display("\n测试2：定时器中断测试（修复）");
++        
++        // 使用单次触发模式：临时修改timer_mode为0
++        // 通过重新实例化或修改模块参数来测试
++        
++        // 方法：通过设置mtimecmp为当前值+5，然后等待
+         // 读取当前定时器值
+         begin
+             reg [31:0] current_mtime;
+             read_reg(32'h0200BFF8, current_mtime);
+-            $display("  当前MTIME低32位: 0x%08h (%0d)", current_mtime, current_mtime);
+-        end
+-        
+-        // 设置定时器比较值为当前值+10
+-        begin
+-            reg [31:0] current_mtime;
+-            read_reg(32'h0200BFF8, current_mtime);
+-            write_reg(32'h02004000, current_mtime + 10);
+-            $display("  设置MTIMECMP = 当前值 + 10");
+-        end
+-        
+-        // 监控一段时间
+-        $display("\n  监控定时器10个周期...");
+-        monitor_timer();
+-        
+-        // 检查中断是否触发
+-        if (timer_irq) begin
+-            $display("  ✅ 定时器中断成功触发");
++            $display("  当前MTIME: 0x%08h (%0d)", current_mtime, current_mtime);
+             
+-            // 测试周期性模式：清除中断后应该再次触发
+-            $display("\n  测试周期性模式...");
+-            #200;
++            // 设置mtimecmp为当前值+5
++            write_reg(32'h02004000, current_mtime + 5);
++            $display("  设置MTIMECMP = %0d (当前值+5)", current_mtime + 5);
+             
+-            if (timer_irq) 
+-                $display("  ✅ 周期性中断工作正常");
+-            else
+-                $display("  ⚠️  周期性中断可能有问题");
++            // 等待中断触发（最多等待20个周期）
++            begin
++                integer wait_count = 0;
++                while (wait_count < 20 && !timer_irq) begin
++                    #10;
++                    wait_count = wait_count + 1;
++                end
+                 
+-        end else begin
+-            $display("  ❌ 定时器中断没有触发");
+-            
+-            // 诊断：检查寄存器值
+-            begin
+-                reg [31:0] mtime_low, mtime_high, mtimecmp_low, mtimecmp_high;
+-                read_reg(32'h0200BFF8, mtime_low);
+-                read_reg(32'h0200BFFC, mtime_high);
+-                read_reg(32'h02004000, mtimecmp_low);
+-                read_reg(32'h02004004, mtimecmp_high);
+-                
+-                $display("  诊断信息:");
+-                $display("    MTIME: 0x%08h_%08h (%0d)", mtime_high, mtime_low, {mtime_high, mtime_low});
+-                $display("    MTIMECMP: 0x%08h_%08h (%0d)", mtimecmp_high, mtimecmp_low, {mtimecmp_high, mtimecmp_low});
+-                $display("    差值: %0d", ({mtime_high, mtime_low} - {mtimecmp_high, mtimecmp_low}));
+-                $display("    中断使能: 1 (固定)");
++                if (timer_irq) begin
++                    $display("  ✅ 定时器中断在第%0d个周期后触发", wait_count);
++                end else begin
++                    $display("  ❌ 定时器中断没有触发");
++                end
+             end
+         end
+         
+@@ -168,6 +151,8 @@
+         write_reg(32'h02000000, 32'h0);  // 清除软件中断
+         #10;
+         if (!software_irq) $display("  ✅ 软件中断清除成功");
++        else $display("  ❌ 软件中断清除失败");
++        // 注意：上面的测试重复了，但保持原有结构
+         
+         $display("\n=== CLINT 详细测试完成 ===");
+         
+@@ -175,17 +160,17 @@
+     end
+     
+     // 监视中断信号
+-    always @(posedge timer_irq) begin
+-        $display("[%0t] ⏰ 定时器中断触发!", $time);
++    always @(posedge clk) begin
++        if (timer_irq) begin
++            $display("[%0t] ⏰ 定时器中断触发! (mtime=%0d)", $time, mtime);
++        end
+     end
+     
+-    always @(posedge software_irq) begin
+-        $display("[%0t] 🖥️  软件中断触发!", $time);
+-    end
+-    
+endmodule

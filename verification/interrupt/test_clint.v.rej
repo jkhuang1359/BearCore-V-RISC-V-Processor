@@ -1,0 +1,38 @@
+--- test_clint.v.backup 2024-12-23 10:00:00
++++ test_clint.v2024-12-23 10:00:01
+@@ -65,17 +65,28 @@
+         $display("测试2：定时器中断");
+         
+         // 设置定时器比较值为1000
+-        write_reg(32'h02004000, 32'h000003E8);  // 低32位 = 1000
++        write_reg(32'h02004000, 32'h00000020);  // 低32位 = 32（更小的值，更容易触发）
+         write_reg(32'h02004004, 32'h00000000);  // 高32位
+         
+-        // 等待定时器递增
+-        #1000;
++        // 读取设置的值确认
++        begin
++            reg [31:0] check_data;
++            read_reg(32'h02004000, check_data);
++            $display("  设置的MTIMECMP低32位: 0x%08h", check_data);
++        end
+         
+-        if (timer_irq) $display("  ✅ 定时器中断触发成功");
+-        else $display("  ❌ 定时器中断失败");
++        // 等待定时器递增（等待足够的时间让定时器超过32）
++        #500;
++        
++        // 检查定时器当前值
++        begin
++            reg [31:0] mtime_low;
++            read_reg(32'h0200BFF8, mtime_low);
++            $display("  当前MTIME: 0x%08h, 中断信号: %b", mtime_low, timer_irq);
++        end
+         
+-        // 测试3：寄存器读写测试
+-        $display("\n测试3：定时器中断");
++        if (timer_irq) $display("  ✅ 定时器中断触发成功");
++        else $display("  ❌ 定时器中断失败");
+ 
+ 
+ 

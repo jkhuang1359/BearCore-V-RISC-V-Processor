@@ -1,0 +1,180 @@
+#!/bin/bash
+
+# 阶段0：基准测试 - 确保原有功能正常
+
+set -e
+
+PROJ_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+LOG_DIR="$PROJ_ROOT/interrupt_dev/logs/phase0"
+mkdir -p "$LOG_DIR"
+
+echo "=== 阶段0：基准测试 ==="
+echo "目标：确保中断集成不影响原有功能"
+echo ""
+
+cd "$PROJ_ROOT"
+
+# 1. 备份当前稳定版本
+echo "1. 备份稳定版本..."
+mkdir -p "$PROJ_ROOT/interrupt_dev/backup/phase0"
+if [ -f "src/core.v" ]; then
+    cp src/core.v "$PROJ_ROOT/interrupt_dev/backup/phase0/core_original.v"
+    echo "   ✅ core.v 备份完成"
+else
+    echo "   ⚠️  找不到 src/core.v"
+fi
+
+if [ -f "src/csr_registers.v" ]; then
+    cp src/csr_registers.v "$PROJ_ROOT/interrupt_dev/backup/phase0/csr_original.v"
+    echo "   ✅ csr_registers.v 备份完成"
+else
+    echo "   ⚠️  找不到 src/csr_registers.v"
+fi
+
+echo ""
+
+# 2. 运行现有测试套件
+echo "2. 运行现有测试套件..."
+
+# 检查测试文件目录
+TEST_DIR="$PROJ_ROOT/interrupt_dev/tests/phase0"
+if [ ! -d "$TEST_DIR" ]; then
+    echo "   ❌ 测试目录不存在: $TEST_DIR"
+    exit 1
+fi
+
+tests=(
+    "$TEST_DIR/minimal_test.s"
+    "$TEST_DIR/test.s"
+    "$TEST_DIR/jump_test.S"
+    "$TEST_DIR/csr_simple_test.c"
+)
+
+# 检查工具链
+if ! command -v riscv64-unknown-elf-gcc &> /dev/null; then
+    echo "   ❌ RISC-V 工具链未安装"
+    exit 1
+fi
+
+# 检查 spike
+if ! command -v spike &> /dev/null; then
+    echo "   ⚠️  spike 未安装，仅编译测试文件"
+    SPIKE_INSTALLED=false
+else
+    SPIKE_INSTALLED=true
+fi
+
+all_pass=true
+for test in "${tests[@]}"; do
+    test_name=$(basename "$test")
+    echo -n "  测试 $test_name... "
+    
+    if [ ! -f "$test" ]; then
+        echo "❌ (文件不存在)"
+        all_pass=false
+        continue
+    fi
+    
+    log_file="$LOG_DIR/${test_name}.log"
+    > "$log_file"  # 清空日志文件
+    
+    # 根据文件类型编译
+    if [[ "$test" == *.c ]]; then
+        # C文件编译
+        riscv64-unknown-elf-gcc -o "${test}.elf" "$test" -nostdlib -march=rv32i -mabi=ilp32 -Ttext=0x80000000 >> "$log_file" 2>&1
+    else
+        # 汇编文件编译
+        riscv64-unknown-elf-gcc -o "${test}.elf" "$test" -nostdlib -march=rv32i -mabi=ilp32 -Ttext=0x80000000 >> "$log_file" 2>&1
+    fi
+    
+    # 检查编译是否成功
+    if [ $? -ne 0 ]; then
+        echo "❌ (编译失败)"
+        all_pass=false
+        continue
+    fi
+    
+    # 如果spike已安装，运行测试
+    if $SPIKE_INSTALLED; then
+        spike --isa=rv32i "${test}.elf" >> "$log_file" 2>&1
+        spike_exit=$?
+        
+        # 检查是否成功运行
+        if [ $spike_exit -eq 0 ]; then
+            echo "✅"
+        else
+            echo "❌ (运行失败, exit code: $spike_exit)"
+            all_pass=false
+        fi
+    else
+        echo "⚠️ (仅编译成功)"
+    fi
+done
+
+echo ""
+
+# 3. 创建性能基线
+echo "3. 创建性能基线..."
+current_date=$(date)
+cat > "$LOG_DIR/performance_baseline.txt" << BASELINE
+BearCore-V 性能基线
+===================
+测试时间: $current_date
+
+核心特性：
+- RV32I 指令集
+- 5级流水线
+- 基础CSR支持
+- UART输出
+
+性能指标：
+1. 时钟频率: 100 MHz (目标)
+2. 关键路径: 待测量
+3. 面积: 待测量
+4. 功耗: 待测量
+
+测试通过情况：
+BASELINE
+
+# 添加测试状态
+for test in "${tests[@]}"; do
+    test_name=$(basename "$test")
+    log_file="$LOG_DIR/${test_name}.log"
+    status="❌"
+    
+    if [ -f "$test" ] && [ -f "${test}.elf" ]; then
+        # 检查编译输出文件是否存在
+        if [ -f "${test}.elf" ]; then
+            if $SPIKE_INSTALLED; then
+                # 如果有spike，检查运行结果
+                if [ -f "$log_file" ] && [ "$(grep -c "error\|Error\|ERROR\|failed\|Failed" "$log_file")" -eq 0 ]; then
+                    status="✅"
+                fi
+            else
+                status="⚠️ (仅编译)"
+            fi
+        fi
+    fi
+    
+    echo "- $test_name: $status" >> "$LOG_DIR/performance_baseline.txt"
+done
+
+cat >> "$LOG_DIR/performance_baseline.txt" << BASELINE
+
+建议：
+1. 记录当前波形作为参考
+2. 测量关键路径时序
+3. 确保所有现有功能正常
+BASELINE
+
+echo "   ✅ 性能基线已保存到 $LOG_DIR/performance_baseline.txt"
+
+# 4. 总结
+echo ""
+echo "=== 阶段0完成 ==="
+if $all_pass; then
+    echo "✅ 所有测试通过，可以进入阶段1"
+else
+    echo "❌ 有测试失败，请检查 $LOG_DIR 中的日志"
+    exit 1
+fi

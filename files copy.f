@@ -1,0 +1,9 @@
+./src/core.v
+./src/alu.v
+./src/reg_file.v
+./src/decoder.v
+./src/csr_registers.v
+./src/data_ram.v
+./src/rom.v
+./src/uart_tx.v
+./src/tb_top.v

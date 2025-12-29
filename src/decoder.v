@@ -39,21 +39,27 @@ module decoder(
     localparam OP_SYSTEM = 7'b1110011;  // 🏆 新增：系統指令（包括 CSR）
 
     // 🏆 ALU 定義 - 修正版（確保沒有重複且語法正確）
-    localparam ALU_ADD   = 4'b0000;
-    localparam ALU_SUB   = 4'b1000;
-    localparam ALU_AND   = 4'b0111;
-    localparam ALU_OR    = 4'b0110;
-    localparam ALU_XOR   = 4'b0100;
-    localparam ALU_SLL   = 4'b0001;
-    localparam ALU_SRL   = 4'b0101;
-    localparam ALU_SRA   = 4'b1101;
-    localparam ALU_SLT   = 4'b0010;  // 🏆 修正：應該是 4'b0010，不是 4'b0012
-    localparam ALU_SLTU  = 4'b0011;  // 🏆 修正：應該是 4'b0011，不是 4'b0013
-    localparam ALU_MUL   = 4'b1001;
-    localparam ALU_DIV   = 4'b1010; 
-    localparam ALU_REM   = 4'b1011;
-    localparam ALU_CSR   = 4'b1110;  // 🏆 新增：CSR 操作
-    localparam ALU_SYS   = 4'b1111;  // 🏆 新增：系統調用
+    // 🏆 0~8：基礎運算
+    localparam ALU_ADD    = 4'b0000; // 0
+    localparam ALU_SUB    = 4'b1000; // 8
+    localparam ALU_SLL    = 4'b0001; // 1
+    localparam ALU_SLT    = 4'b0010; // 2
+    localparam ALU_SLTU   = 4'b0011; // 3
+    localparam ALU_XOR    = 4'b0100; // 4
+    localparam ALU_SRL    = 4'b0101; // 5
+    localparam ALU_OR     = 4'b0110; // 6
+    localparam ALU_AND    = 4'b0111; // 7
+    localparam ALU_SRA    = 4'b1101; // 13
+
+    // 🏆 9~12：乘法群 (M-Extension)
+    localparam ALU_MUL    = 4'd9;    
+    localparam ALU_MULH   = 4'd10;   
+    localparam ALU_MULHSU = 4'd11;   
+    localparam ALU_MULHU  = 4'd12;   
+
+    // 🏆 14~15：除法與系統
+    localparam ALU_DIV    = 4'd14;   
+    localparam ALU_REM    = 4'd15;
 
     // 🏆 CSR 操作類型定義
     localparam CSR_OP_RW  = 2'b00;  // CSRRW, CSRRWI
@@ -180,7 +186,7 @@ module decoder(
 
         // 🏆 優先檢查是否為 CSR 指令
         if (is_csr_inst) begin
-            alu_op_temp = ALU_CSR; // CSR 操作
+            alu_op_temp = ALU_ADD; // CSR 操作
         end
         // 1. 檢查是否為 M 擴展 (例如 MUL)
         else if (is_m_ext) begin
@@ -188,6 +194,9 @@ module decoder(
                 3'b000: begin
                     alu_op_temp = ALU_MUL;
                 end
+                3'b001: alu_op_temp = ALU_MULH;   // 🏆 新增 
+                3'b010: alu_op_temp = ALU_MULHSU; // 🏆 新增 (建議一併實作)           
+                3'b011: alu_op_temp = ALU_MULHU;  // 🏆 新增    
                 3'b100: begin
                     alu_op_temp = ALU_DIV;
                 end
@@ -238,7 +247,7 @@ module decoder(
         end
         // 🏆 系統調用指令（ECALL/EBREAK/MRET）
         else if (is_syscall_inst) begin
-            alu_op_temp = ALU_SYS; // 系統調用操作碼
+            alu_op_temp = ALU_ADD; // 系統調用操作碼
         end
     end
     assign alu_op = alu_op_temp;

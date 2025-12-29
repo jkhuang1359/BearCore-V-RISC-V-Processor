@@ -1,147 +1,132 @@
-# BearCore-V RISC-V Processor Makefile
-# ======================================
+# --- 1. 路徑與工具定義 ---
+PROJ_ROOT := $(shell pwd)
+SRC_DIR   := $(PROJ_ROOT)/src
+# 🏆 修正：明確指向 src/ 下的原始碼 
+SW_SOURCES := $(SRC_DIR)/start.s $(SRC_DIR)/main.c
 
-# 工具链配置
 CROSS_COMPILE = riscv64-unknown-elf-
-CC = $(CROSS_COMPILE)gcc
+CC      = $(CROSS_COMPILE)gcc
+NM      = $(CROSS_COMPILE)nm
 OBJCOPY = $(CROSS_COMPILE)objcopy
 OBJDUMP = $(CROSS_COMPILE)objdump
-SIZE = $(CROSS_COMPILE)size
-
-# 编译选项
-CFLAGS = -march=rv32im -mabi=ilp32 -O0 -g -nostdlib -nostartfiles -ffreestanding
-INCLUDES = -I./src/include
-LDFLAGS = -T link.ld -Wl,--gc-sections
+SIZE    = $(CROSS_COMPILE)size
 
 # 仿真工具
 IVERILOG = iverilog
 VVP = vvp
 WAVEVIEWER = gtkwave
 
-# 文件列表
-SOURCE_FILES = src/core.v src/alu.v src/decoder.v src/reg_file.v \
-               src/rom.v src/data_ram.v src/uart_tx.v src/csr_registers.v
-TESTBENCH = src/tb_top.v
+# --- 2. 編譯選項 ---
+CFLAGS   = -march=rv32im -mabi=ilp32 -O0 -g -nostdlib -nostartfiles -ffreestanding
+INCLUDES = -I./src/include
+# 🏆 確保連結 link.ld 
+LDFLAGS  = -T link.ld -Wl,--gc-sections
 
-# 默认目标
-all: firmware.hex
+# --- 3. 預設目標流程 ---
+# 順序：編譯 -> 反彙編 -> 佈局檢查 -> 動態內容檢查 -> 生成 HEX
 
-# ======================================
-# 主程序编译
-# ======================================
+MAX_ROM_SIZE = 65536  # 🏆 64KB (16384 * 4)
 
-# 标准测试程序
-firmware.elf: src/start.s src/main.c
-	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $^ -o $@
-	@echo "编译完成: firmware.elf"
+check_size: firmware.elf
+	@riscv64-unknown-elf-size firmware.elf
+	@echo "--- 正在進行硬體尺寸驗證 ---"
+	@# 提取 .text 和 .rodata 的總大小 (十進位)
+	@USAGE=$$(riscv64-unknown-elf-size -A firmware.elf | grep -E "\.text|\.rodata" | awk '{sum += $$2} END {print sum}'); \
+	if [ $$USAGE -gt $(MAX_ROM_SIZE) ]; then \
+		echo "------------------------------------------------------------"; \
+		echo "🚨 ERROR: 程式容量 ($$USAGE Bytes) 已超出 ROM 限制 ($(MAX_ROM_SIZE) Bytes)!"; \
+		echo "👉 溢出空間: $$(($$USAGE - $(MAX_ROM_SIZE))) Bytes"; \
+		echo "👉 解決方法: 1. 修改 link.ld 加大 ROM | 2. 修改 core.v 解碼位址 | 3. 優化 C 代碼"; \
+		echo "------------------------------------------------------------"; \
+		exit 1; \
+	else \
+		echo "✅ 尺寸驗證通過！"; \
+		echo "📊 目前佔用: $$USAGE Bytes / $(MAX_ROM_SIZE) Bytes"; \
+		echo "🔋 剩餘空間: $$(($(MAX_ROM_SIZE) - $$USAGE)) Bytes"; \
+	fi
+
+all: firmware.hex disasm check_layout check_hex_dynamic check_size
+# --- 4. 韌體編譯規則 ---
+
+firmware.elf: $(SW_SOURCES) link.ld
+	$(CC) $(CFLAGS) $(INCLUDES) -DSIMULATION $(SW_SOURCES) $(LDFLAGS) -o $@
+	@echo "✅ 編譯完成: firmware.elf"
 	$(SIZE) $@
 
 firmware.bin: firmware.elf
 	$(OBJCOPY) -O binary $< $@
-	@echo "生成二进制文件: firmware.bin"
 
 firmware.hex: firmware.bin
 	od -An -t x4 -w4 -v $< | tr -d ' ' > $@
-	@echo "生成Hex文件: firmware.hex"
+	@echo "✅ 生成 Verilog HEX: firmware.hex"
 
-# ======================================
-# CSR测试程序
-# ======================================
-
-# CSR简单测试
-csr_simple_test: src/start_csr_test.s tests/csr_simple_test.c
-	$(CC) $(CFLAGS) $(INCLUDES) $(LDFLAGS) $^ -o firmware.elf
-	$(OBJCOPY) -O binary firmware.elf firmware.bin
-	od -An -t x4 -w4 -v firmware.bin | tr -d ' ' > firmware.hex
-	@echo "CSR测试程序生成完成"
-
-# ======================================
-# 仿真运行
-# ======================================
-
-# 标准仿真
-sim: firmware.hex
-	@echo "开始仿真..."
-	$(IVERILOG) -g2012 -o wave.vvp -f files.f
-	$(VVP) wave.vvp
-	@echo "仿真完成"
-
-# CSR测试仿真
-test_csr_simple: csr_simple_test
-	@echo "开始CSR测试仿真..."
-	$(IVERILOG) -g2012 -o wave.vvp -f files.f
-	$(VVP) wave.vvp
-	@echo "CSR测试仿真完成"
-
-# 生成波形
-wave: firmware.hex
-	@echo "开始仿真并生成波形..."
-	$(IVERILOG) -g2012 -o wave.vvp -f files.f
-	$(VVP) wave.vvp -fst
-	@echo "波形文件已生成: cpu.vcd"
-	@echo "使用命令: gtkwave cpu.vcd 查看波形"
-
-# ======================================
-# 分析和调试
-# ======================================
-
-# 反汇编
 disasm: firmware.elf
-	$(OBJDUMP) -d firmware.elf > firmware.disasm
-	@echo "反汇编文件: firmware.disasm"
+	$(OBJDUMP) -d -l firmware.elf > firmware.disasm
+	@echo "✅ 生成反彙編: firmware.disasm"
 
-# 内存映射
-memmap: firmware.elf
-	$(OBJDUMP) -h firmware.elf > firmware.memmap
-	@echo "内存映射文件: firmware.memmap"
+# --- 5. 自動化檢查腳本 ---
 
-# 符号表
-symbols: firmware.elf
-	$(OBJDUMP) -t firmware.elf > firmware.symbols
-	@echo "符号表文件: firmware.symbols"
+# 🏆 腳本 A：驗證符號位址是否符合 link.ld 規劃
+check_layout: firmware.elf
+	@sync
+	@echo "--- 正在驗證記憶體佈局 ---"
+	$(eval ACTUAL_START=$(shell $(NM) firmware.elf | grep " _start" | awk '{print $$1}'))
+	$(eval ACTUAL_VEC=$(shell $(NM) firmware.elf | grep " exception_entry" | awk '{print $$1}'))
+	@if [ "$(ACTUAL_START)" != "00000000" ]; then \
+		echo "❌ 錯誤：_start 位址為 $(ACTUAL_START)，應為 00000000"; exit 1; \
+	fi
+	@if [ "$(ACTUAL_VEC)" != "00000100" ]; then \
+		echo "❌ 錯誤：exception_entry 位址為 $(ACTUAL_VEC)，應為 00000100"; exit 1; \
+	fi
+	@echo "✅ 佈局驗證通過 (_start: 0x0, exception_entry: 0x100)"
 
-# ======================================
-# 清理
-# ======================================
+# 🏆 腳本 B：動態比對 Hex 內容與反彙編指令是否一致
+check_hex_dynamic: firmware.hex firmware.disasm
+	@echo "--- 正在進行動態 Hex 內容驗證 ---"
+	@# 🏆 修正版：擴大範圍至 20 行，並精準過濾掉原始碼雜訊
+	$(eval EXPECTED_CODE=$(shell grep -A 20 "<exception_entry>:" firmware.disasm | grep -E "^[[:space:]]*[0-9a-f]+:[[:space:]]+[0-9a-f]+" | head -n 1 | awk '{print $$2}'))
+	
+	@# 從 hex 檔案提取第 65 行 (位址 0x100)
+	$(eval ACTUAL_CODE=$(shell sed -n '65p' firmware.hex))
+	
+	@if [ -z "$(EXPECTED_CODE)" ]; then \
+		echo "❌ 錯誤：找不到 exception_entry 的實體指令 (受 -S 模式影響)"; \
+		echo "👉 建議：檢查 firmware.disasm 中 exception_entry 下方是否插入過多原始碼"; \
+		exit 1; \
+	fi
+	@if [ "$(ACTUAL_CODE)" != "$(EXPECTED_CODE)" ]; then \
+		echo "❌ 錯誤：0x100 內容不匹配！"; \
+		echo "👉 預期 (來自 Disasm): $(EXPECTED_CODE)"; \
+		echo "👉 實際 (來自 Hex):    $(ACTUAL_CODE)"; \
+		exit 1; \
+	else \
+		echo "✅ 動態內容驗證通過！機器碼: $(ACTUAL_CODE)"; \
+	fi
 
+# --- 模擬與自動化驗證 ---
+
+# 🏆 執行 IVerilog 模擬並儲存日誌
+sim: all
+	@echo "--- 開始 BearCore-V 硬體模擬 ---"
+	$(IVERILOG) -g2012 -s tb_top -o wave.vvp -f files.f
+	$(VVP) wave.vvp | tee simulation.log
+	@echo "--- 模擬結束，日誌已儲存至 simulation.log ---"
+	@$(MAKE) verify_sim
+
+# 🏆 自動搜尋模擬日誌中的關鍵字
+verify_sim:
+	@echo "--- 正在驗證模擬結果 ---"
+	@if grep -q "Result: PASS=30" simulation.log; then \
+		echo "✅ [硬體驗證通過] "; \
+		grep "EXCEPTION DETECTED" simulation.log; \
+	else \
+		echo "❌ [硬體驗證失敗] "; \
+		exit 1; \
+	fi	
+
+# --- 6. 清理 ---
 clean:
-	rm -f *.elf *.bin *.hex *.vvp *.vcd *.fst
-	rm -f firmware.disasm firmware.memmap firmware.symbols
-	rm -f *.log *.out
+	rm -f *.elf *.bin *.hex *.vvp *.vcd *.fst *.disasm *.symbols *.map
 	@echo "清理完成"
 
-distclean: clean
-	rm -f *.backup *~ .*.swp
-	@echo "深度清理完成"
-
-# ======================================
-# 辅助目标
-# ======================================
-
-# 显示帮助信息
-help:
-	@echo "BearCore-V Makefile 使用说明:"
-	@echo ""
-	@echo "编译目标:"
-	@echo "  make all           - 编译主测试程序 (默认)"
-	@echo "  make csr_simple_test - 编译CSR测试程序"
-	@echo ""
-	@echo "仿真目标:"
-	@echo "  make sim           - 运行主测试仿真"
-	@echo "  make test_csr_simple - 运行CSR测试仿真"
-	@echo "  make wave          - 仿真并生成波形文件"
-	@echo ""
-	@echo "分析目标:"
-	@echo "  make disasm        - 生成反汇编文件"
-	@echo "  make memmap        - 生成内存映射文件"
-	@echo "  make symbols       - 生成符号表文件"
-	@echo ""
-	@echo "清理目标:"
-	@echo "  make clean         - 清理编译产物"
-	@echo "  make distclean     - 深度清理"
-	@echo ""
-	@echo "其他目标:"
-	@echo "  make help          - 显示此帮助信息"
-
-# 伪目标声明
-.PHONY: all sim test_csr_simple wave disasm memmap symbols clean distclean help
+.PHONY: all clean sim verify_sim

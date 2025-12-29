@@ -1,0 +1,8 @@
+# 开发环境忽略文件
+logs/
+backup/
+waveforms/
+*.vvp
+*.vcd
+*.log
+current_phase

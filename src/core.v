@@ -1,9 +1,11 @@
 module core(
     input clk,
     input rst_n,
-    output uart_tx_o
+    output uart_tx_o,
+    input uart_rx_i
 );
     // --- 1. 訊號定義 ---
+    reg id_valid, ex_valid, mem_valid, wb_valid;
     reg  [31:0] pc;
     wire [31:0] pc_next, if_inst;
     wire [31:0] ex_target_pc;
@@ -46,8 +48,8 @@ module core(
     reg [5:0] div_stall_cnt;
     wire is_real_div = id_is_m_ext && (id_funct3 == 3'b100 || id_funct3 == 3'b110);
     //wire div_stall = is_real_div && (div_stall_cnt < 6'd32);
-
-    assign div_stall = 1'b0;
+    wire is_div_op = id_is_m_ext && (id_funct3[2] == 1'b1); // 偵測 DIV/REM
+    wire div_stall = is_div_op && (div_stall_cnt < 6'd32);
 
     // 1. 添加 CSR 相關信號
     wire is_csr, is_system, csr_use_imm;
@@ -56,19 +58,52 @@ module core(
     wire [31:0] csr_rdata, csr_wdata;
     wire csr_we;
     wire [31:0] mtvec, mepc;
-    wire mie, timer_int, ext_int;
+    wire timer_int, ext_int;
     wire id_is_csr;
     wire [1:0] id_csr_op;
     wire id_csr_use_imm;
     wire [11:0] id_csr_addr;
+    wire [31:0] mie_reg;
 
-        // 4. 定義例外相關信號
-    wire exc_taken = (is_system && (id_inst == 32'h00000073)) ||  // ECALL
-                    (is_system && (id_inst == 32'h00100073));    // EBREAK
+    // 4. 定義例外相關信號
+    wire id_is_illegal = !(id_reg_wen || id_is_load || id_is_store || 
+                       id_is_branch || id_is_jal || id_is_jalr || 
+                       id_is_lui || id_is_auipc || is_system || 
+                       id_inst == 32'h00000013);
+
+    // =============================================================================
+    // 🏆 優化：例外觸發邏輯 (Exception Trigger Logic)
+    // =============================================================================
+
+    // 1. 定義「軟體同步例外」：包含非法指令 (Illegal)、ECALL、EBREAK [cite: 75, 106-113]
+    wire id_sw_exc = id_is_illegal || (is_system && (id_inst == 32'h00000073 || id_inst == 32'h00100073));
+
+    // 2. 最終例外判定：
+    //    - 關鍵優化：如果 EX 階段正在「跳轉」(!ex_take_branch)，則忽略 ID 階段的例外。
+    //    - 理由：跳轉指令後的下一條指令是「預取雜訊」，不應觸發 Illegal TRAP 。
+    //    - 外部中斷 (timer_int_final) 則不受此限，隨時可觸發 
+    wire exc_taken = (id_sw_exc && !ex_take_branch) || timer_int_final;
+
+    wire mstatus_mie;                   
+
+    reg [63:0] mtime; // 🏆 升級為 64 位元生理時鐘
+    reg [63:0] mtimecmp; // 🏆 64 位元比較暫存器 (鬧鐘設定值)
+
+    wire mem_is_mtimecmp_l = (mem_alu_result == 32'h10000010);
+    wire mem_is_mtimecmp_h = (mem_alu_result == 32'h10000014);    
+
+    wire timer_int_raw = (mtime >= mtimecmp);
+
+    // 🏆 修正：只有在 EX 階段「沒有」要跳轉時，才允許觸發中斷
+    // 這樣可以確保 EPC (mepc) 抓到的是穩定的位址，而不是被 Flush 掉的 0
+    wire timer_int_final = timer_int_raw && mie_reg[7] && mstatus_mie && !ex_take_branch;
 
     wire mret_taken = (is_system && (id_inst == 32'h30200073));   // MRET
 
-    reg [3:0] exc_cause;
+    wire flush = (ex_take_branch || exc_taken || mret_taken); // 當跳轉或例外發生時，沖刷流水線    
+
+
+    reg [31:0] exc_cause;
     reg [31:0] exc_tval;        
 
     // ID/EX 流水線寄存器中的 CSR 相關信號
@@ -96,8 +131,54 @@ module core(
         else div_stall_cnt <= 0;
     end    
 
+
+    // 1. 偵測 CPU 是否正在進行 UART 資料讀取
+    wire uart_read_ack = (mem_alu_result == 32'h10000000) && mem_is_load && mem_valid;
+
+    // 判定目前 MEM 階段的位址是否屬於 UART 範圍
+    wire mem_at_uart_status = (mem_alu_result == 32'h10000004);
+
+    // 🏆 讀取確認邏輯 (Read Ack)
+    // 條件：1.位址在資料暫存器 2.是一條載入指令 (LOAD) 3.該流水線階段指令有效
+
+    // UART RX 模組實例化
+    // 🏆 1. 定義測試模式寄存器
+    reg tx_test_en;
+    reg rx_test_en;
+
+
+    // 🏆 2. 實作 RX 的路徑多工器 (MUX)
+    // 如果進入測試模式，RX 訊號直接抓 TX 的輸出
+    wire final_rx_i = (rx_test_en) ? uart_tx_o : uart_rx_i;
+
+
+    wire [7:0] uart_rx_data;
+    wire       uart_rx_ready;
+
+    uart_rx #(
+        .CLK_FREQ(100000000), 
+        .BAUD_RATE(1152000) // 🏆 這裡要跟你之前日誌的 1152000 一致
+    ) u_uart_rx (
+        .clk(clk),
+        .rst_n(rst_n),
+        .rx_i(final_rx_i),
+        .read_en_i(uart_read_ack), // 🏆 當讀取成功時，自動通知模組清除 Ready
+        .data_o(uart_rx_data),
+        .ready_o(uart_rx_ready)
+    );    
+
+
     // --- IF Stage ---
-    assign pc_next = (ex_take_branch) ? ex_target_pc : (pc + 4);
+
+    // =============================================================================
+    // 🏆 優化：下一跳 PC 選擇器 (PC Next Multiplexer)
+    // =============================================================================
+
+    assign pc_next = (ex_take_branch) ? ex_target_pc : // 🥇 最高優先：EX 階段確定的跳轉/分支
+                     (exc_taken)      ? mtvec        : // 🥈 次要優先：例外或中斷跳轉至 mtvec
+                     (mret_taken)     ? mepc         : // 🥉 第三優先：從中斷返回至 mepc
+                    (pc + 4);                          // 預設：正常執行下一條指令
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) pc <= 0;
         else if (!stall) pc <= pc_next;
@@ -113,12 +194,14 @@ module core(
 
     // --- ID Stage ---
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n || ex_take_branch) begin 
+        if (!rst_n || flush) begin 
             id_pc <= 0;
             id_inst <= 32'h00000013; 
+            id_valid <= 1'b0; // 🏆 Flush 時清除有效位
         end else if (!stall) begin 
             id_pc <= pc;
             id_inst <= if_inst;
+            id_valid <= 1'b1; // 🏆 取指成功
         end
     end
 
@@ -141,58 +224,58 @@ module core(
     assign id_csr_use_imm = csr_use_imm;
     assign id_csr_addr = csr_addr;   
 
+    wire timer_irq_trigger = mstatus_mie && mie_reg[7] && timer_int_raw;
+
+    // 🏆 修正：決定正確的 Trap 返回位址
+    // 如果 id_valid 為 1，代表 ID 階段有有效指令，返回 id_pc。
+    // 如果 id_valid 為 0 (剛被 Flush)，代表我們應該返回目前正在 IF 階段抓取的 pc 位址。
+    wire [31:0] trap_ret_pc = (id_valid) ? id_pc : pc;    
+
     csr_registers u_csr (
-        .clk(clk),
-        .rst_n(rst_n),
-        
-        // CSR 存取接口
-        .csr_addr(mem_csr_addr),
-        .csr_wdata(csr_wdata),
-        .csr_we(csr_we),
-        .csr_op(mem_csr_op),
-        .csr_use_imm(mem_csr_use_imm),
-        
-        // 例外和中斷處理
-        .pc(ex_pc),          // 使用 EX 階段的 PC
-        .exc_cause(exc_cause),    // 暫時設為0，後續完善
-        .exc_tval(exc_tval),    // 暫時設為0
-        .mret_taken(mret_taken),
-        
-        // 輸出
-        .csr_rdata(csr_rdata),
-        .mtvec(mtvec),
-        .mepc(mepc),
-        .mie(mie),
-        .timer_int(timer_int),
-        .ext_int(ext_int)
-    );    
+        .clk(clk), .rst_n(rst_n),
+        .csr_addr(mem_csr_addr), .csr_wdata(csr_wdata), .csr_we(csr_we), .csr_op(mem_csr_op), .csr_use_imm(mem_csr_use_imm),
+        .trap_in(exc_taken), .id_pc(trap_ret_pc), .id_exc_cause(exc_cause), .timer_int_raw(timer_int_raw),// 硬體自動存檔 
+        .mret_taken(mret_taken), .csr_rdata(csr_rdata), .mtvec(mtvec), .mepc(mepc), .mie_reg(mie_reg), .mstatus_mie(mstatus_mie)
+    );
 
     // 5. 處理例外原因
     always @(*) begin
-        if (is_system) begin
+        if (id_is_illegal) begin
+            exc_cause = 32'h00000002;  // 例外：非法指令 (Cause = 2, Bit 31 = 0) [cite: 103]
+            exc_tval  = id_inst;   // 把錯誤的機器碼存進 tval
+        end    
+        else if (is_system) begin
             case (id_inst)
                 32'h00000073: begin  // ECALL
-                    exc_cause = 4'hB;  // 環境調用
+                    exc_cause = 32'h0000000B;  // 環境調用
                     exc_tval = 32'h0;
                 end
                 32'h00100073: begin  // EBREAK
-                    exc_cause = 4'h3;  // 斷點
+                    exc_cause = 32'h00000003;  // 斷點
                     exc_tval = 32'h0;
                 end
                 default: begin
-                    exc_cause = 4'h2;  // 非法指令
+                    exc_cause = 32'h00000002;  // 例外：非法指令 (Cause = 2, Bit 31 = 0) [cite: 103]
                     exc_tval = id_inst;
                 end
             endcase
-        end else begin
-            exc_cause = 4'h0;
+
+        end
+        // 🏆 新增：處理計時器中斷
+        else if (timer_int_final) begin 
+            exc_cause = 32'h80000007;  // 中斷：Machine Timer (Bit 31 = 1, Code = 7)
+            exc_tval  = 32'h0;
+        end 
+        else begin
+            exc_cause = 32'h0;
             exc_tval = 32'h0;
         end
     end    
 
     reg_file u_regfile (
         .clk(clk), .raddr1(id_rs1_addr), .rdata1(id_rdata1), .raddr2(id_rs2_addr), 
-        .rdata2(id_rdata2), .wen(wb_reg_wen), .waddr(wb_rd_addr), .wdata(wb_write_data)
+        .rdata2(id_rdata2), .wen(wb_reg_wen), .waddr(wb_rd_addr), .wdata(wb_write_data),
+        .rst_n(rst_n)
     );
 
     // --- Hazard & EX Stage ---
@@ -200,9 +283,11 @@ module core(
         stall = (ex_is_load && (ex_rd_addr != 0) && (ex_rd_addr == id_rs1_addr || ex_rd_addr == id_rs2_addr)) 
               || div_stall;
     end
+    // --- EX Stage ---
+    wire final_id_reg_wen = id_reg_wen || id_is_csr;
 
     always @(posedge clk or negedge rst_n) begin
-        if (!rst_n || ex_take_branch || stall) begin
+        if (!rst_n || flush || stall) begin
             ex_pc <= 0; ex_rd_addr <= 0; ex_reg_wen <= 0; ex_mem_wen <= 0; ex_is_branch <= 0;
             ex_is_jal <= 0; ex_is_jalr <= 0; ex_is_load <= 0;
             ex_is_lui      <= 0;
@@ -212,43 +297,28 @@ module core(
             ex_is_system <= 1'b0;
             ex_csr_op <= 2'b0;
             ex_csr_use_imm <= 1'b0;
-            ex_csr_addr <= 12'b0;            
+            ex_csr_addr <= 12'b0;  
+            ex_valid <= 1'b0; // 🏆 Stall 或 Flush 時，向後級傳遞無效信號          
         end else begin
             ex_pc <= id_pc; ex_imm <= id_imm; ex_rd_addr <= id_rd_addr;
             ex_rs1_addr <= id_rs1_addr; ex_rs2_addr <= id_rs2_addr;
             ex_funct3 <= id_funct3; ex_alu_op <= id_alu_op; ex_alu_src_b <= id_alu_src_b;
-            ex_mem_wen <= id_is_store; ex_reg_wen <= id_reg_wen; ex_is_load <= id_is_load;
+            ex_mem_wen <= id_is_store; ex_reg_wen <= final_id_reg_wen; ex_is_load <= id_is_load;
             ex_is_jal <= id_is_jal; ex_is_jalr <= id_is_jalr; ex_is_branch <= id_is_branch;
             ex_is_lui <= id_is_lui; ex_is_auipc <= id_is_auipc; ex_rdata1 <= id_rdata1; ex_rdata2 <= id_rdata2;
             ex_is_csr <= id_is_csr;
             ex_is_system <= is_system;
             ex_csr_op <= id_csr_op;
             ex_csr_use_imm <= id_csr_use_imm;
-            ex_csr_addr <= id_csr_addr; 
-/*               
-            if (is_csr) begin
-                $display("[CORE-DEBUG] ID stage: CSR instruction detected!");
-                $display("  csr_addr = 0x%h, csr_op_type = %b, csr_use_imm = %b", 
-                        csr_addr, csr_op_type, csr_use_imm);
-                $display("  id_rs1_addr = %d, id_rd_addr = %d", 
-                        id_rs1_addr, id_rd_addr);
-            end  
-*/                           
+            ex_csr_addr <= id_csr_addr;     
+            ex_valid <= id_valid; // 🏆 傳遞有效位              
         end
     end
-/*
-    always @(posedge clk) begin
-        if (ex_is_csr) begin
-            $display("[CORE-DEBUG] EX stage: Processing CSR instruction");
-            $display("  ex_csr_addr = 0x%h, csr_wdata = 0x%h, csr_we = %b", 
-                    ex_csr_addr, csr_wdata, csr_we);
-        end
-    end    
-*/
+
     // 計算 MEM 階段的寫回數據（用於前推）\\
     wire [31:0] mem_stage_data =   (mem_is_load) ? mem_final_rdata :
                                 (mem_is_jal_jalr) ? mem_pc_plus_4 :
-                                (mem_is_csr) ? csr_rdata :  // CSR 讀取數據\\
+                                (mem_is_csr) ? csr_rdata_forwarded :  // CSR 讀取數據\\
                                 mem_alu_result;             // ALU 結果\\    
 
     // Forwarding
@@ -289,7 +359,8 @@ module core(
             mem_is_system <= 1'b0;
             mem_csr_op <= 2'b0;
             mem_csr_use_imm <= 1'b0;
-            mem_csr_addr <= 12'b0;            
+            mem_csr_addr <= 12'b0;     
+            mem_valid <= 1'b0;       
         end else begin
             mem_alu_result <= ex_alu_result;
             mem_rs2_data <= rs2_data_final;
@@ -301,20 +372,15 @@ module core(
             mem_csr_op <= ex_csr_op;
             mem_csr_wdata <= (ex_csr_use_imm) ? ex_imm : fwd_rs1;
             mem_csr_use_imm <= ex_csr_use_imm;
-            mem_csr_addr <= ex_csr_addr;            
+            mem_csr_addr <= ex_csr_addr;   
+            mem_valid <= ex_valid; // 🏆 傳遞有效位         
         end
     end
-/*
-    always @(posedge clk) begin
-        if (mem_is_csr) begin
-            $display("[CORE-DEBUG] MEM stage: CSR access");
-            $display("  mem_csr_addr = 0x%h, csr_rdata = 0x%h", 
-                    mem_csr_addr, csr_rdata);
-        end
-    end    
-*/
+
     // 🏆 1. 統一 MMIO 位址解碼 (範圍判斷)
     wire mem_is_mmio = (mem_alu_result >= 32'h10000000 && mem_alu_result < 32'h10000010);
+
+    wire is_ram_addr = (mem_alu_result >= 32'h00010000) && (mem_alu_result <= 32'h0001FFFF);
 
     wire mem_is_uart_data   = (mem_alu_result == 32'h10000000); 
     wire mem_is_uart_status = (mem_alu_result == 32'h10000004); 
@@ -322,60 +388,99 @@ module core(
     wire mem_is_inst_cnt    = (mem_alu_result == 32'h1000000C); 
     
     // 🏆 2. 周邊裝置實例化
-    assign uart_wen = mem_mem_wen && mem_is_uart_data; 
-
     wire [31:0] mem_ram_rdata;
+
+    wire actual_ram_wen = mem_mem_wen && is_ram_addr;
     // 只有位址不在 MMIO 範圍時，才允許寫入 Data RAM [cite: 45]
     data_ram u_ram (
         .clk(clk), 
-        .wen(mem_mem_wen && !mem_is_mmio), 
+        .wen(actual_ram_wen), 
         .addr(mem_alu_result), 
         .wdata(mem_rs2_data), 
         .funct3(mem_funct3),  // 🏆 新增：傳遞操作類型
         .rdata(mem_ram_rdata)
     ); 
 
-    uart_tx u_uart (
+    // 1. 定義「純粹的寫入位址觸發」訊號 (不管寫入什麼內容)
+    wire uart_reg_write = mem_mem_wen && mem_is_uart_data && mem_valid;
+
+    // 2. 定義「真正的 8-bit 資料發送」訊號 (只有在測試位元為 0 時才發送)
+    wire uart_real_tx_en = uart_reg_write && (mem_rs2_data[31:30] == 2'b00);
+
+    // 🏆 修改 3：更新測試暫存器的時機 (改用 uart_reg_write)
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            tx_test_en <= 1'b0;
+            rx_test_en <= 1'b0;
+        end else if (uart_reg_write) begin // 🚀 這裡不能過濾 Bit 30/31，否則設定不進去！
+            tx_test_en <= mem_rs2_data[31]; 
+            rx_test_en <= mem_rs2_data[30]; 
+        end
+    end    
+
+    uart_tx #(  .CLK_FREQ(100000000),
+                .BAUD_RATE(1152000)  // 🏆 新增這行，與 tb_top.v 一致
+    ) u_uart(
         .clk(clk), .rst_n(rst_n), 
-        .data_i(mem_rs2_data[7:0]), .valid_i(uart_wen), 
-        .busy_o(uart_busy), .tx_o(uart_tx_o), .test_mode_i(1'b0)
+        .data_i(mem_rs2_data[7:0]), .valid_i(uart_real_tx_en), 
+        .busy_o(uart_busy), .tx_o(uart_tx_o), .test_mode_i(tx_test_en)
     ); 
 
     // 🏆 3. 效能計數器累加邏輯 (只保留一組)
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin 
-            cycle_cnt <= 0; 
-            inst_cnt  <= 0; 
+            cycle_cnt <= 0; inst_cnt  <= 0; 
         end else begin 
-            cycle_cnt <= cycle_cnt + 1; // 總週期數保持不變 [cite: 170]
-            
-            // 🏆 新定義：WB 階段的 PC 只要不是 0 (代表有指令流過)，
-            // 且該指令不是 NOP (0x00000013)，就計入有效指令
-            // 這樣就能正確計入 SW, BEQ, JAL 等不寫回暫存器的指令了
-            if (wb_pc_plus_4 != 0) begin
-                        // 這裡可以根據你的 wb 階段控制訊號來判斷
-                        // 最簡單的過濾法：只要這條指令不是因為 Flush 變成的 NOP
-                if (wb_reg_wen || mem_mem_wen || mem_is_jal_jalr || (ex_is_branch && !ex_take_branch)) begin
-                            // 這裡邏輯較複雜，建議改用「有效位元 (Valid bit)」傳遞
-                    inst_cnt <= inst_cnt + 1; // 總週期數保持不變 [cite: 170]
-                end
+            cycle_cnt <= cycle_cnt + 1;
+            // 🏆 最終嚴謹判斷：只有成功到達 WB 階段且有效位為高的指令才計數
+            if (wb_valid) begin
+
+                inst_cnt <= inst_cnt + 1;
             end
         end
     end
 
+
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mtimecmp <= 64'hFFFFFFFF_FFFFFFFF; // 預設設為最大值，防止一啟動就中斷
+        end else if (mem_mem_wen && mem_valid) begin // 🏆 只有在 Store 指令有效時寫入
+            if (mem_is_mtimecmp_l)
+                mtimecmp[31:0]  <= mem_rs2_data;
+            else if (mem_is_mtimecmp_h)
+                mtimecmp[63:32] <= mem_rs2_data;
+        end
+    end    
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) 
+            mtime <= 64'b0;
+        else 
+            mtime <= mtime + 1'b1; // 每個時鐘週期加 1
+    end
+
     // 🏆 4. 讀取資料多工器 (決定 CPU 讀到什麼)
     reg [31:0] mem_final_rdata;
-    assign is_rom_data_access = (mem_alu_result >= 32'h00000000 && mem_alu_result < 32'h00004000);
+    assign is_rom_data_access = (mem_alu_result >= 32'h00000000 && mem_alu_result < 32'h00010000);
 
     always @(*) begin
         if (mem_is_uart_status) begin
-            mem_final_rdata = {31'b0, uart_busy};
-        end else if (mem_is_cycle_cnt) begin
-            mem_final_rdata = cycle_cnt;
-        end else if (mem_is_inst_cnt) begin
-            mem_final_rdata = inst_cnt;
-        end else if (mem_is_uart_data) begin
-            mem_final_rdata = 32'h0;
+            mem_final_rdata = {30'b0, uart_rx_ready, uart_busy};
+        end else if (mem_alu_result == 32'h10000000) begin
+            mem_final_rdata = {24'b0, uart_rx_data}; 
+        end else if (mem_alu_result == 32'h10000008) begin
+            mem_final_rdata = mtime[31:0];
+        end
+        // 🏆 讀取 mtime 高 32 位元 (0x1000000C)
+        else if (mem_alu_result == 32'h1000000C) begin
+            mem_final_rdata = mtime[63:32];
+        end else if (mem_alu_result == 32'h10000010) begin // mtimecmp_l
+            mem_final_rdata = mtimecmp[31:0];
+        end else if (mem_alu_result == 32'h10000014) begin // mtimecmp_h
+            mem_final_rdata = mtimecmp[63:32];
+        end else if (mem_is_csr) begin                   
+            mem_final_rdata = csr_rdata; // 🏆 關鍵：把 CSR 值放進來            
         end else if (is_rom_data_access && !mem_mem_wen) begin
             // 🏆 從 ROM 讀取數據（只讀）
             // 注意：ROM 返回整個字，需要根據地址偏移和 funct3 選擇正確的字節
@@ -428,7 +533,8 @@ module core(
             wb_is_system <= 1'b0;
             wb_csr_op <= 2'b0;
             wb_csr_use_imm <= 1'b0;
-            wb_csr_addr <= 12'b0;            
+            wb_csr_addr <= 12'b0;    
+            wb_valid  <= 1'b0;      
         end else begin
             wb_ram_rdata <= mem_final_rdata; wb_alu_result <= mem_alu_result; 
             wb_rd_addr <= mem_rd_addr; wb_pc_plus_4 <= mem_pc_plus_4;
@@ -438,15 +544,15 @@ module core(
             wb_is_system <= mem_is_system;
             wb_csr_op <= mem_csr_op;
             wb_csr_use_imm <= mem_csr_use_imm;
-            wb_csr_addr <= mem_csr_addr;            
+            wb_csr_addr <= mem_csr_addr;   
+            wb_valid <= mem_valid; // 🏆 傳遞有效位         
         end
     end
 
     wire [31:0] csr_rdata_forwarded = (mem_is_csr && csr_we && mem_csr_addr == wb_csr_addr) ? csr_wdata : csr_rdata;
 
     assign wb_write_data = (wb_is_jal_jalr) ? wb_pc_plus_4 : 
-                        (wb_is_load) ? wb_ram_rdata : 
-                        (wb_is_csr) ? csr_rdata_forwarded :  // 使用前推後的 CSR 數據
+                        (wb_is_load || wb_is_csr) ? wb_ram_rdata : 
                         wb_alu_result;
 
     // 5. CSR 寫入數據選擇
@@ -461,40 +567,6 @@ module core(
     
     assign csr_we = mem_is_csr && (csr_write_always || csr_write_set || csr_write_clear);
 
-/*
-    always @(posedge clk) begin
-        // 追蹤 CSR 讀取指令的數據流
-        if (mem_is_csr && mem_reg_wen) begin
-            $display("[CSR-DATAFLOW] MEM: CSR[0x%h] = 0x%h -> x%0d", 
-                    mem_csr_addr, csr_rdata, mem_rd_addr);
-        end
-        
-        if (wb_is_csr && wb_reg_wen) begin
-            $display("[CSR-DATAFLOW] WB: Writing x%0d = 0x%h (from CSR)", 
-                    wb_rd_addr, wb_write_data);
-        end
-        
-        // 追蹤分支指令的數據
-        if (ex_is_branch && ex_rs1_addr == 11 && ex_rs2_addr == 12) begin
-            $display("[BRANCH-DATA] Comparing: x11=0x%h vs x12=0x%h, zero=%b, taken=%b",
-                    fwd_rs1, fwd_rs2, ex_alu_zero, ex_take_branch);
-            $display("  MEM stage: rd_addr=%d, reg_wen=%b, is_csr=%b",
-                    mem_rd_addr, mem_reg_wen, mem_is_csr);
-            $display("  WB stage: rd_addr=%d, reg_wen=%b, is_csr=%b",
-                    wb_rd_addr, wb_reg_wen, wb_is_csr);
-        end
-        
-        // 追蹤前推情況
-        if (ex_is_csr || (ex_is_branch && (ex_rs1_addr == 11 || ex_rs2_addr == 12))) begin
-            if (mem_reg_wen && mem_rd_addr != 0 && (mem_rd_addr == ex_rs1_addr || mem_rd_addr == ex_rs2_addr)) begin
-                $display("[FWD-DEBUG] MEM->EX: x%0d = 0x%h, is_csr=%b",
-                        mem_rd_addr, mem_stage_data, mem_is_csr);
-            end
-            if (wb_reg_wen && wb_rd_addr != 0 && (wb_rd_addr == ex_rs1_addr || wb_rd_addr == ex_rs2_addr)) begin
-                $display("[FWD-DEBUG] WB->EX: x%0d = 0x%h, is_csr=%b",
-                        wb_rd_addr, wb_write_data, wb_is_csr);
-            end
-        end
-    end
-*/
+
+
 endmodule

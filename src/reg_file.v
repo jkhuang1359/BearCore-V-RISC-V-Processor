@@ -1,5 +1,6 @@
 module reg_file(
     input clk,
+    input rst_n,
     input [4:0] raddr1, output [31:0] rdata1,
     input [4:0] raddr2, output [31:0] rdata2,
     input wen, input [4:0] waddr, input [31:0] wdata
@@ -20,8 +21,14 @@ module reg_file(
     assign rdata2 = (raddr2 == 0) ? 32'b0 : 
                     (wen && (waddr == raddr2)) ? wdata : regs[raddr2];
 
-    always @(posedge clk) begin
-        if (wen && waddr != 0) begin
+    // 🏆 修正：改用同步/非同步重置，而非 initial，更符合 ASIC/FPGA 設計規範
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            for (i=0; i<32; i=i+1) begin
+                if (i == 2) regs[i] <= 32'h00008000; // 重置時初始化 SP 
+                else regs[i] <= 32'h0;
+            end
+        end else if (wen && waddr != 0) begin
             regs[waddr] <= wdata;
         end
     end

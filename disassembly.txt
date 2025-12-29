@@ -1,0 +1,33 @@
+
+uart_correct.elf:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <_start>:
+   0:	10000437          	lui	s0,0x10000
+   4:	100004b7          	lui	s1,0x10000
+   8:	00448493          	addi	s1,s1,4 # 10000004 <__global_pointer$+0xfffe7b4>
+   c:	04100513          	li	a0,65
+  10:	018000ef          	jal	ra,28 <uart_send>
+  14:	04200513          	li	a0,66
+  18:	010000ef          	jal	ra,28 <uart_send>
+  1c:	04300513          	li	a0,67
+  20:	008000ef          	jal	ra,28 <uart_send>
+
+00000024 <end_loop>:
+  24:	0000006f          	j	24 <end_loop>
+
+00000028 <uart_send>:
+  28:	ffc10113          	addi	sp,sp,-4
+  2c:	00112023          	sw	ra,0(sp)
+  30:	00050293          	mv	t0,a0
+
+00000034 <uart_poll>:
+  34:	0004a303          	lw	t1,0(s1)
+  38:	00137313          	andi	t1,t1,1
+  3c:	fe031ce3          	bnez	t1,34 <uart_poll>
+  40:	00542023          	sw	t0,0(s0) # 10000000 <__global_pointer$+0xfffe7b0>
+  44:	00012083          	lw	ra,0(sp)
+  48:	00410113          	addi	sp,sp,4
+  4c:	00008067          	ret

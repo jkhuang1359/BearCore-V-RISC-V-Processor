@@ -1,0 +1,9 @@
+./tb_simple.v
+./core.v
+./alu.v
+./decoder.v
+./reg_file.v
+./rom.v
+./data_ram.v
+./uart_tx.v
+./csr_registers.v

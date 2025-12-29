@@ -1,0 +1,66 @@
+--- plic.v.backup2024-12-23 10:00:00
++++ plic.v2024-12-23 10:00:01
+@@ -129,7 +129,7 @@
+ 
+ // 更新等待寄存器
+ always @(posedge clk or negedge rst_n) begin
+-    integer i;
++    integer update_i;
+     if (!rst_n) begin
+         source_pending <= {NUM_SOURCES{1'b0}};
+     end else begin
+@@ -137,15 +137,15 @@
+         for (integer i = 0; i < NUM_SOURCES; i = i + 1) begin
+             if (irq_rising_edge[i]) begin
+                 source_pending[i] <= 1'b1;
+-            end
+-            // 中断被声明或完成时清除等待位
+-            if (irq_complete_i[0] && current_irq_id[0] == i) begin
+-                source_pending[i] <= 1'b0;
+             end
++            // 中断被声明或完成时清除等待位
++            if (irq_complete_i[0] && current_irq_id[0] == i) begin
++                source_pending[i] <= 1'b0;
++            end
+         end
+     end
+ end
+@@ -236,7 +236,7 @@
+ // 配置总线接口
+ always @(posedge clk or negedge rst_n) begin
+     if (!rst_n) begin
+-        integer i;
++        integer init_i;
+         cfg_state <= CFG_IDLE;
+         cfg_ready <= 1'b0;
+         cfg_rdata <= 32'b0;
+@@ -285,7 +285,7 @@
+                 if (cfg_addr >= SOURCE_PRIO_BASE && 
+                     cfg_addr < SOURCE_PRIO_BASE + NUM_SOURCES*4) begin
+                     integer source_id = (cfg_addr - SOURCE_PRIO_BASE) >> 2;
+-                    if (source_id < NUM_SOURCES) begin
++                    if (source_id < NUM_SOURCES && source_id >= 0) begin
+                         source_priority[source_id] <= cfg_wdata[PRIO_BITS-1:0];
+                     end
+                 end
+@@ -299,9 +299,9 @@
+                     integer target_id = word_offset / ((NUM_SOURCES + 31) / 32);
+                     integer word_index = word_offset % ((NUM_SOURCES + 31) / 32);
+                     
+-                    if (target_id < NUM_TARGETS) begin
++                    if (target_id < NUM_TARGETS && target_id >= 0) begin
+                         integer start_bit = word_index * 32;
+-                        integer end_bit = start_bit + 31;
++                        integer end_bit = start_bit + 32 - 1;
+                         if (end_bit >= NUM_SOURCES) end_bit = NUM_SOURCES - 1;
+                         
+                         for (integer i = start_bit; i <= end_bit; i = i + 1) begin
+@@ -316,7 +316,7 @@
+                         cfg_addr < TARGET_THRESHOLD_BASE + NUM_TARGETS*4) begin
+                     integer target_id = (cfg_addr - TARGET_THRESHOLD_BASE) >> 2;
+                     if (target_id < NUM_TARGETS) begin
+-                        target_threshold[target_id] <= cfg_wdata[PRIO_BITS-1:0];
++                        target_threshold[target_id] <= cfg_wdata[PRIO_BITS-1:0] & ((1 << PRIO_BITS) - 1);
+                     end
+                 end
+                 else if (cfg_addr >= TARGET_CLAIM_BASE && 

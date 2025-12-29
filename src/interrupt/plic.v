@@ -1,0 +1,328 @@
+`timescale 1ns/1ps
+// ============================================
+// BearCore-V Platform Level Interrupt Controller (PLIC)
+// ============================================
+// 支持多个外部中断源，可配置优先级和阈值
+// ============================================
+
+module plic #(
+    parameter NUM_SOURCES = 16,     // 中断源数量
+    parameter NUM_TARGETS = 1,      // 目标核心数量
+    parameter PRIO_BITS = 3         // 优先级位数
+)(
+    // 系统接口
+    input wire          clk,
+    input wire          rst_n,
+    
+    // 中断源输入
+    input wire [NUM_SOURCES-1:0] irq_sources_i,
+    
+    // 目标核心接口
+    output wire [NUM_TARGETS-1:0] irq_o,          // 中断输出
+    output wire [31:0]            irq_id_o,       // 中断ID
+    input wire [NUM_TARGETS-1:0]  irq_complete_i, // 中断完成确认
+    
+    // 配置总线接口
+    input wire          cfg_en,
+    input wire          cfg_we,
+    input wire [31:0]   cfg_addr,
+    input wire [31:0]   cfg_wdata,
+    output reg [31:0]   cfg_rdata,
+    output reg          cfg_ready
+);
+
+// ============================================
+// 常量定义
+// ============================================
+
+localparam SOURCE_PRIO_BASE = 32'h0000_0000;    // 源优先级基地址
+localparam SOURCE_PENDING_BASE = 32'h0000_1000; // 等待中断基地址
+localparam TARGET_ENABLE_BASE = 32'h0000_2000;  // 目标使能基地址
+localparam TARGET_THRESHOLD_BASE = 32'h0020_0000; // 目标阈值基地址
+localparam TARGET_CLAIM_BASE = 32'h0020_0004;   // 目标声明/完成基地址
+
+// ============================================
+// 内部寄存器
+// ============================================
+
+// 源优先级寄存器（每个源3位）
+reg [PRIO_BITS-1:0] source_priority [0:NUM_SOURCES-1];
+
+// 源等待寄存器
+reg [NUM_SOURCES-1:0] source_pending;
+
+// 目标使能寄存器（每个目标使能哪些中断源）
+reg [NUM_SOURCES-1:0] target_enable [0:NUM_TARGETS-1];
+
+// 目标阈值寄存器（每个目标一个）
+reg [PRIO_BITS-1:0] target_threshold [0:NUM_TARGETS-1];
+
+// 当前活动中断
+reg [31:0] current_irq_id [0:NUM_TARGETS-1];
+reg [NUM_TARGETS-1:0] irq_active;
+
+// 中断请求信号
+wire [NUM_TARGETS-1:0] irq_request;
+
+// ============================================
+// 中断源处理
+// ============================================
+
+// 同步外部中断源（防止亚稳态）
+reg [NUM_SOURCES-1:0] irq_sources_sync0;
+reg [NUM_SOURCES-1:0] irq_sources_sync1;
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        irq_sources_sync0 <= {NUM_SOURCES{1'b0}};
+        irq_sources_sync1 <= {NUM_SOURCES{1'b0}};
+    end else begin
+        irq_sources_sync0 <= irq_sources_i;
+        irq_sources_sync1 <= irq_sources_sync0;
+    end
+end
+
+// 检测边沿（上升沿）
+reg [NUM_SOURCES-1:0] irq_sources_last;
+wire [NUM_SOURCES-1:0] irq_rising_edge;
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        irq_sources_last <= {NUM_SOURCES{1'b0}};
+    end else begin
+        irq_sources_last <= irq_sources_sync1;
+    end
+end
+
+assign irq_rising_edge = irq_sources_sync1 & ~irq_sources_last;
+
+integer i,t;
+
+// 更新等待寄存器
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        source_pending <= {NUM_SOURCES{1'b0}};
+    end else begin
+        // 新中断到达时置位等待位
+        for ( i = 0; i < NUM_SOURCES; i = i + 1) begin
+            if (irq_rising_edge[i]) begin
+                source_pending[i] <= 1'b1;
+            end
+            // 中断被声明或完成时清除等待位
+            if (irq_complete_i[0] && current_irq_id[0] == i) begin
+                source_pending[i] <= 1'b0;
+            end
+        end
+    end
+end
+
+// ============================================
+// 中断仲裁逻辑
+// ============================================
+reg [PRIO_BITS-1:0] max_priority;
+reg [31:0] max_priority_id;
+reg has_pending_irq;
+
+    initial begin
+        max_priority = 0;
+        max_priority_id = 0;
+        has_pending_irq = 0;
+    end
+
+integer source_id;
+integer word_offset, target_id, word_index;
+integer start_bit, end_bit;
+
+
+genvar j;
+integer s;
+generate
+    for ( j = 0; j < NUM_TARGETS; j = j + 1) begin
+        // 计算每个目标的最高优先级中断        
+        always @(*) begin
+            max_priority = {PRIO_BITS{1'b0}};
+            max_priority_id = 32'b0;
+            has_pending_irq = 1'b0;
+            
+            for ( s = 0; s < NUM_SOURCES; s = s + 1) begin
+                if (source_pending[s] && target_enable[j][s] && (source_priority[s] > max_priority) && (source_priority[s] > target_threshold[j])) begin
+                    max_priority = source_priority[s];
+                    max_priority_id = s;
+                    has_pending_irq = 1'b1;
+                end
+            end
+            
+            // 中断ID 0保留，表示没有中断
+            if (!has_pending_irq) begin
+                max_priority_id = 32'b0;
+            end
+        end
+        
+        // 中断请求信号
+        assign irq_request[j] = has_pending_irq;
+        
+        // 更新当前中断
+        always @(posedge clk or negedge rst_n) begin
+            if (!rst_n) begin
+                current_irq_id[j] <= 32'b0;
+                irq_active[j] <= 1'b0;
+            end else begin
+                if (!irq_active[j] && has_pending_irq) begin
+                    current_irq_id[j] <= max_priority_id;
+                    irq_active[j] <= 1'b1;
+                end else if (irq_complete_i[j]) begin
+                    irq_active[j] <= 1'b0;
+                end
+            end
+        end
+    end
+endgenerate
+
+// 中断输出
+assign irq_o = irq_active;
+assign irq_id_o = current_irq_id[0];  // 对于单核心
+
+// ============================================
+// 配置总线接口
+// ============================================
+
+reg [1:0] cfg_state;
+localparam CFG_IDLE   = 2'b00;
+localparam CFG_READ   = 2'b01;
+localparam CFG_WRITE  = 2'b10;
+localparam CFG_RESP   = 2'b11;
+
+always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+        cfg_state <= CFG_IDLE;
+        cfg_ready <= 1'b0;
+        cfg_rdata <= 32'b0;
+        
+        // 初始化寄存器
+        for (i = 0; i < NUM_SOURCES; i = i + 1) begin
+            source_priority[i] <= {PRIO_BITS{1'b0}};
+        end
+        
+        for (t = 0; t < NUM_TARGETS; t = t + 1) begin
+            target_enable[t] <= {NUM_SOURCES{1'b0}};
+            target_threshold[t] <= {PRIO_BITS{1'b0}};
+        end
+    end else begin
+        case (cfg_state)
+            CFG_IDLE: begin
+                cfg_ready <= 1'b0;
+                if (cfg_en) begin
+                    if (cfg_we) begin
+                        cfg_state <= CFG_WRITE;
+                    end else begin
+                        cfg_state <= CFG_READ;
+                    end
+                end
+            end
+            
+            CFG_READ: begin
+                // 读取配置寄存器
+                if (cfg_addr >= SOURCE_PRIO_BASE && cfg_addr < SOURCE_PRIO_BASE + NUM_SOURCES*4) begin
+                    source_id = (cfg_addr - SOURCE_PRIO_BASE) >> 2;
+                    if (source_id < NUM_SOURCES) begin
+                        cfg_rdata <= {29'b0, source_priority[source_id]};
+                    end
+                end
+                else if (cfg_addr >= SOURCE_PENDING_BASE && cfg_addr < SOURCE_PENDING_BASE + 4) begin
+                    cfg_rdata <= source_pending;
+                end
+                else if (cfg_addr >= TARGET_ENABLE_BASE && cfg_addr < TARGET_ENABLE_BASE + NUM_TARGETS*NUM_SOURCES*4/32) begin
+                    // 计算目标ID和使能字
+                    word_offset = (cfg_addr - TARGET_ENABLE_BASE) >> 2;
+                    target_id = word_offset / ((NUM_SOURCES + 31) / 32);
+                    word_index = word_offset % ((NUM_SOURCES + 31) / 32);
+                    
+                    if (target_id < NUM_TARGETS) begin
+                        cfg_rdata <= target_enable[target_id] >> (word_index * 32);
+                    end
+                end
+                else if (cfg_addr >= TARGET_THRESHOLD_BASE && 
+                    cfg_addr < TARGET_THRESHOLD_BASE + NUM_TARGETS*4) begin
+                    target_id = (cfg_addr - TARGET_THRESHOLD_BASE) >> 2;
+                    if (target_id < NUM_TARGETS) begin
+                        cfg_rdata <= {29'b0, target_threshold[target_id]};
+                    end
+                end
+                else if (cfg_addr >= TARGET_CLAIM_BASE && 
+                    cfg_addr < TARGET_CLAIM_BASE + NUM_TARGETS*4) begin
+                    target_id = (cfg_addr - TARGET_CLAIM_BASE) >> 2;
+                    if (target_id < NUM_TARGETS) begin
+                        cfg_rdata <= current_irq_id[target_id];
+                    end
+                end
+                
+                cfg_state <= CFG_RESP;
+            end
+            
+            CFG_WRITE: begin
+                // 写入配置寄存器
+                if (cfg_addr >= SOURCE_PRIO_BASE && 
+                    cfg_addr < SOURCE_PRIO_BASE + NUM_SOURCES*4) begin
+                    source_id = (cfg_addr - SOURCE_PRIO_BASE) >> 2;
+                    if (source_id < NUM_SOURCES && source_id > 0) begin // 源0优先级固定为0
+                        source_priority[source_id] <= cfg_wdata[PRIO_BITS-1:0];
+                    end
+                end
+                else if (cfg_addr >= TARGET_ENABLE_BASE && cfg_addr < TARGET_ENABLE_BASE + NUM_TARGETS*NUM_SOURCES*4/32) begin
+                    word_offset = (cfg_addr - TARGET_ENABLE_BASE) >> 2;
+                    target_id = word_offset / ((NUM_SOURCES + 31) / 32);
+                    word_index = word_offset % ((NUM_SOURCES + 31) / 32);
+                    
+                    if (target_id < NUM_TARGETS) begin
+                        start_bit = word_index * 32;
+                        end_bit = start_bit + 31;
+                        if (end_bit >= NUM_SOURCES) end_bit = NUM_SOURCES - 1;
+                        
+                        for (i = start_bit; i <= end_bit; i = i + 1) begin
+                            if (i < NUM_SOURCES && i > 0) begin // 中断源0不可使能
+                                target_enable[target_id][i] <= cfg_wdata[i - start_bit];
+                            end
+                        end
+                    end
+                end
+                else if (cfg_addr >= TARGET_THRESHOLD_BASE && cfg_addr < TARGET_THRESHOLD_BASE + NUM_TARGETS*4) begin
+                    target_id = (cfg_addr - TARGET_THRESHOLD_BASE) >> 2;
+                    if (target_id < NUM_TARGETS) begin
+                        target_threshold[target_id] <= cfg_wdata[PRIO_BITS-1:0];
+                    end
+                end
+                else if (cfg_addr >= TARGET_CLAIM_BASE && cfg_addr < TARGET_CLAIM_BASE + NUM_TARGETS*4) begin
+                    // 写入CLAIM寄存器表示中断完成
+                    target_id = (cfg_addr - TARGET_CLAIM_BASE) >> 2;
+                    if (target_id < NUM_TARGETS && cfg_wdata == current_irq_id[target_id]) begin
+                        // 中断完成处理在仲裁逻辑中
+                    end
+                end
+                
+                cfg_state <= CFG_RESP;
+            end
+            
+            CFG_RESP: begin
+                cfg_ready <= 1'b1;
+                cfg_state <= CFG_IDLE;
+            end
+        endcase
+    end
+end
+
+// ============================================
+// 调试输出
+// ============================================
+
+`ifdef DEBUG_PLIC
+always @(posedge clk) begin
+    if (irq_active[0] && irq_id_o != 0) begin
+        $display("[PLIC] Interrupt %0d asserted", irq_id_o);
+    end
+    if (irq_complete_i[0]) begin
+        $display("[PLIC] Interrupt complete");
+    end
+end
+`endif
+
+endmodule

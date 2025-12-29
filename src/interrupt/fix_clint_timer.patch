@@ -1,0 +1,46 @@
+--- clint.v.backup2024-12-23 10:00:00
++++ clint.v 2024-12-23 10:00:01
+@@ -45,7 +45,7 @@
+ wire timer_irq;
+ assign timer_irq = (mtime >= mtimecmp) && irq_enable;
+ 
+-// 软件中断信号
++// 软件中断信号（MSIP寄存器）
+ wire software_irq;
+ assign software_irq = msip && irq_enable;
+ 
+@@ -134,21 +134,29 @@
+ // 定时器计数器逻辑
+ // ============================================
+ 
++reg [63:0] mtime_next;
++
+ always @(posedge clk or negedge rst_n) begin
+     if (!rst_n) begin
+         mtime <= 64'b0;
++        mtime_next <= 64'b0;
+     end else begin
+-        // 定时器永远递增
+-        mtime <= mtime + 1;
+-        
+-        // 定时器比较值溢出处理
+-        if (mtimecmp == 64'hFFFF_FFFF_FFFF_FFFF) begin
+-            // 如果比较值是最大值，永远不会触发中断
++        // 计算下一个定时器值
++        mtime_next = mtime + 1;
++        
++        // 检查是否溢出（当mtime为最大值时）
++        if (mtime == 64'hFFFFFFFFFFFFFFFF) begin
++            mtime <= 64'b0;
++        end else begin
++            mtime <= mtime_next;
+         end
+     end
+ end
+ 
+-// ============================================
++// 调试：显示定时器值
++// always @(posedge clk) begin
++//     if (mtime[5:0] == 6'b0)  // 每64个周期显示一次
++//         $display("[CLINT] MTIME = %0d", mtime);
++// end
