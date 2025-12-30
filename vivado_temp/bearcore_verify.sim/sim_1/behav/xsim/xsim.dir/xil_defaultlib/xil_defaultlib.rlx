@@ -1,0 +1,16 @@
+0.7
+2020.2
+Nov 14 2025
+12:36:23
+/home/jiakuan/projects/my_riscv_core/src/alu.v,1767105037,verilog,,/home/jiakuan/projects/my_riscv_core/src/core.v,,alu,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/core.v,1767105299,verilog,,/home/jiakuan/projects/my_riscv_core/src/csr_registers.v,,core,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/csr_registers.v,1766792013,verilog,,/home/jiakuan/projects/my_riscv_core/src/data_ram.v,,csr_registers,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/data_ram.v,1767097417,verilog,,/home/jiakuan/projects/my_riscv_core/src/decoder.v,,data_ram,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/decoder.v,1766893584,verilog,,/home/jiakuan/projects/my_riscv_core/src/div_unit.v,,decoder,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/div_unit.v,1767104328,verilog,,/home/jiakuan/projects/my_riscv_core/src/reg_file.v,,div_unit,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/reg_file.v,1766727819,verilog,,/home/jiakuan/projects/my_riscv_core/src/rom.v,,reg_file,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/rom.v,1766731430,verilog,,/home/jiakuan/projects/my_riscv_core/src/uart_rx.v,,rom,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/uart_rx.v,1766766988,verilog,,/home/jiakuan/projects/my_riscv_core/src/uart_tx.v,,uart_rx,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/src/uart_tx.v,1766936782,verilog,,/home/jiakuan/projects/my_riscv_core/tests/bench/tb_top.v,,uart_tx,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/tests/bench/tb_top.v,1767073917,verilog,,,,tb_top,,,../../../../../../../../../tools/Xilinx/2025.2/data/rsb/busdef,,,,,
+/home/jiakuan/projects/my_riscv_core/vivado_temp/bearcore_verify.sim/sim_1/behav/xsim/glbl.v,1756381829,verilog,,,,glbl,,,,,,,,

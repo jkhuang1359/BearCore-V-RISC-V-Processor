@@ -1,0 +1,267 @@
+
+****** Vivado v2025.2 (64-bit)
+  **** SW Build 6299465 on Fri Nov 14 12:34:56 MST 2025
+  **** IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
+  **** SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
+  **** Start of session at: Tue Dec 30 22:36:34 2025
+    ** Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
+    ** Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+
+source run_vivado.tcl
+# set project_name "bearcore_verify"
+# set part_name "xc7a35tcpg236-1"
+# create_project -force $project_name ./vivado_temp -part $part_name
+create_project: Time (s): cpu = 00:00:10 ; elapsed = 00:00:40 . Memory (MB): peak = 1566.500 ; gain = 90.055 ; free physical = 8830 ; free virtual = 26006
+# add_files [glob ./src/*.v]
+# add_files ./tests/bench/tb_top.v
+# add_files -fileset sim_1 ./firmware.hex
+# set_property file_type {Memory File} [get_files ./firmware.hex]
+# set_property top tb_top [get_filesets sim_1]
+# puts "\n--- \[Vivado\] Launching Simulation... ---"
+
+--- [Vivado] Launching Simulation... ---
+# launch_simulation
+Command: launch_simulation 
+INFO: [Vivado 12-25911] Executing simulation for 'XSim' simulator
+INFO: [Project 1-5737] Running on host LAPTOP-313KSBNJ (64) - Ubuntu 20.04.6 LTS
+INFO: [Vivado 12-28535] Process started - Tue Dec 30 22:37:39 2025
+
+INFO: [Vivado 12-12493] Simulation top is 'tb_top'
+INFO: [Vivado 12-5682] Launching behavioral simulation in '/home/jiakuan/projects/my_riscv_core/vivado_temp/bearcore_verify.sim/sim_1/behav/xsim'
+INFO: [SIM-utils-51] Simulation object is 'sim_1'
+INFO: [SIM-utils-72] Using boost library from '/tools/Xilinx/2025.2/tps/boost_1_72_0'
+INFO: [SIM-utils-54] Inspecting design source files for 'tb_top' in fileset 'sim_1'...
+INFO: [SIM-utils-43] Exported '/home/jiakuan/projects/my_riscv_core/vivado_temp/bearcore_verify.sim/sim_1/behav/xsim/firmware.hex'
+INFO: [SIM-utils-43] Exported '/home/jiakuan/projects/my_riscv_core/vivado_temp/bearcore_verify.sim/sim_1/behav/xsim/firmware.hex'
+INFO: [USF-XSim-97] Finding global include files...
+INFO: [USF-XSim-98] Fetching design files from 'sim_1'...
+INFO: [USF-XSim-2] XSim::Compile design
+INFO: [USF-XSim-61] Executing 'COMPILE and ANALYZE' step in '/home/jiakuan/projects/my_riscv_core/vivado_temp/bearcore_verify.sim/sim_1/behav/xsim'
+xvlog --incr --relax -prj tb_top_vlog.prj
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/alu.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module alu
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/core.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module core
+WARNING: [VRFC 10-3380] identifier 'uart_rx_ready' is used before its declaration [/home/jiakuan/projects/my_riscv_core/src/core.v:88]
+WARNING: [VRFC 10-3380] identifier 'reg_uart_ie' is used before its declaration [/home/jiakuan/projects/my_riscv_core/src/core.v:89]
+WARNING: [VRFC 10-3380] identifier 'tx_test_en' is used before its declaration [/home/jiakuan/projects/my_riscv_core/src/core.v:91]
+WARNING: [VRFC 10-3380] identifier 'timer_int_final' is used before its declaration [/home/jiakuan/projects/my_riscv_core/src/core.v:93]
+WARNING: [VRFC 10-3380] identifier 'mem_is_uart_ie' is used before its declaration [/home/jiakuan/projects/my_riscv_core/src/core.v:195]
+WARNING: [VRFC 10-3380] identifier 'mem_final_rdata' is used before its declaration [/home/jiakuan/projects/my_riscv_core/src/core.v:384]
+WARNING: [VRFC 10-3380] identifier 'csr_rdata_forwarded' is used before its declaration [/home/jiakuan/projects/my_riscv_core/src/core.v:386]
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/csr_registers.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module csr_registers
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/data_ram.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module data_ram
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/decoder.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module decoder
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/div_unit.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module div_unit
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/reg_file.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module reg_file
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/rom.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module rom
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/uart_rx.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module uart_rx
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/src/uart_tx.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module uart_tx
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/tests/bench/tb_top.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module tb_top
+WARNING: [VRFC 10-3380] identifier 'uart_char_ready' is used before its declaration [/home/jiakuan/projects/my_riscv_core/tests/bench/tb_top.v:50]
+WARNING: [VRFC 10-3380] identifier 'captured_char' is used before its declaration [/home/jiakuan/projects/my_riscv_core/tests/bench/tb_top.v:52]
+INFO: [VRFC 10-2263] Analyzing Verilog file "/home/jiakuan/projects/my_riscv_core/vivado_temp/bearcore_verify.sim/sim_1/behav/xsim/glbl.v" into library xil_defaultlib
+INFO: [VRFC 10-311] analyzing module glbl
+Waiting for jobs to finish...
+No pending jobs, compilation finished.
+execute_script: Time (s): cpu = 00:00:02 ; elapsed = 00:00:09 . Memory (MB): peak = 1566.500 ; gain = 0.000 ; free physical = 8807 ; free virtual = 25995
+INFO: [USF-XSim-69] 'compile' step finished in '9' seconds
+INFO: [USF-XSim-3] XSim::Elaborate design
+INFO: [USF-XSim-61] Executing 'ELABORATE' step in '/home/jiakuan/projects/my_riscv_core/vivado_temp/bearcore_verify.sim/sim_1/behav/xsim'
+xelab --incr --debug typical --relax --mt 8 -L xil_defaultlib -L unisims_ver -L unimacro_ver -L secureip --snapshot tb_top_behav xil_defaultlib.tb_top xil_defaultlib.glbl -log elaborate.log
+Vivado Simulator v2025.2
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
+Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+Running: /tools/Xilinx/2025.2/Vivado/bin/unwrapped/lnx64.o/xelab --incr --debug typical --relax --mt 8 -L xil_defaultlib -L unisims_ver -L unimacro_ver -L secureip --snapshot tb_top_behav xil_defaultlib.tb_top xil_defaultlib.glbl -log elaborate.log 
+Using 8 slave threads.
+WARNING: [XSIM 43-3431] One or more environment variables have been detected which affect the operation of the C compiler. These are typically not set in standard installations and are not tested by AMD, however they may be appropriate for your system, so the flow will attempt to continue.  If errors occur, try running xelab with the "-mt off -v 1" switches to see more information from the C compiler. The following environment variables have been detected:
+    LIBRARY_PATH
+Starting static elaboration
+Pass Through NonSizing Optimizer
+WARNING: [VRFC 10-5021] port 'funct7' is not connected on this instance [/home/jiakuan/projects/my_riscv_core/src/core.v:400]
+Completed static elaboration
+Starting simulation data flow analysis
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/core.v" Line 1. Module core doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/uart_rx.v" Line 1. Module uart_rx(CLK_FREQ=100000000,BAUD_RATE=1152000) doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/rom.v" Line 1. Module rom doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/decoder.v" Line 1. Module decoder doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/csr_registers.v" Line 1. Module csr_registers doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/reg_file.v" Line 1. Module reg_file doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/alu.v" Line 1. Module alu doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/div_unit.v" Line 1. Module div_unit doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/data_ram.v" Line 1. Module data_ram doesn't have a timescale but at least one module in design has a timescale.
+WARNING: [XSIM 43-4099] "/home/jiakuan/projects/my_riscv_core/src/uart_tx.v" Line 1. Module uart_tx_default doesn't have a timescale but at least one module in design has a timescale.
+Completed simulation data flow analysis
+Time Resolution for simulation is 1ps
+Compiling module xil_defaultlib.uart_rx(CLK_FREQ=100000000,BAUD_...
+Compiling module xil_defaultlib.rom
+Compiling module xil_defaultlib.decoder
+Compiling module xil_defaultlib.csr_registers
+Compiling module xil_defaultlib.reg_file
+Compiling module xil_defaultlib.div_unit
+Compiling module xil_defaultlib.alu
+Compiling module xil_defaultlib.data_ram
+Compiling module xil_defaultlib.uart_tx_default
+Compiling module xil_defaultlib.core
+Compiling module xil_defaultlib.tb_top
+Compiling module xil_defaultlib.glbl
+Built simulation snapshot tb_top_behav
+execute_script: Time (s): cpu = 00:00:03 ; elapsed = 00:00:19 . Memory (MB): peak = 1566.500 ; gain = 0.000 ; free physical = 8778 ; free virtual = 25990
+INFO: [USF-XSim-69] 'elaborate' step finished in '20' seconds
+INFO: [USF-XSim-4] XSim::Simulate design
+INFO: [USF-XSim-61] Executing 'SIMULATE' step in '/home/jiakuan/projects/my_riscv_core/vivado_temp/bearcore_verify.sim/sim_1/behav/xsim'
+INFO: [USF-XSim-98] *** Running xsim
+   with args "tb_top_behav -key {Behavioral:sim_1:Functional:tb_top} -tclbatch {tb_top.tcl} -log {simulate.log}"
+INFO: [USF-XSim-8] Loading simulator feature
+Time resolution is 1 ps
+source tb_top.tcl
+## set curr_wave [current_wave_config]
+## if { [string length $curr_wave] == 0 } {
+##   if { [llength [get_objects]] > 0} {
+##     add_wave /
+##     set_property needs_save false [current_wave_config]
+##   } else {
+##      send_msg_id Add_Wave-1 WARNING "No top level signals found. Simulator will start without a wave window. If you want to open a wave window go to 'File->New Waveform Configuration' or type 'create_wave_config' in the TCL console."
+##   }
+## }
+## run 1000ns
+--- BearCore-V 自動化模擬啟動 (100MHz / 1152000 Baud) ---
+INFO: [USF-XSim-96] XSim completed. Design snapshot 'tb_top_behav' loaded.
+INFO: [USF-XSim-97] XSim simulation ran for 1000ns
+launch_simulation: Time (s): cpu = 00:00:10 ; elapsed = 00:00:52 . Memory (MB): peak = 1601.426 ; gain = 34.926 ; free physical = 8737 ; free virtual = 25962
+# run all
+
+
+
+
+=== BearCore-V 30-in-1 Test Suite ===
+
+
+
+--- Main Menu ---
+
+1. Basic Logic (Tests 1-5)
+
+2. Control Flow (Tests 6-8)
+
+3. Memory (Tests 9-11)
+
+4. Mul/Div (Tests 12-15)
+
+5. Algorithms (Tests 16-20)
+
+6. String/Ptr (Tests 21-23)
+
+7. CSR/Sys (Tests 24-26)
+
+8. Interrupts (Test 27)
+
+9. Polling RX (Test 28 - Press 'k')
+
+0. Run All Remaining (Tests 29-30)
+
+a. Run ALL Tests Automatically
+
+b. UART Hardware BIST (Test 31)
+c. UART RX/TX interrupt (Test 32)
+Select Test: 
+
+a
+
+
+
+
+
+
+[TB_AUTO] >>> 傳送指令: 'a' (0x61) <<<
+=== Test 32: UART Full-Duplex Interrupt ===
+
+[Phase 1] RX Test: Press ANY key...
+
+ -> [PASS] RX Interrupt triggered! Got: a
+
+[Phase 2] TX Test: Sending 'Q' and waiting for Done IRQ...
+
+
+
+ -> [PASS] TX Interrupt triggered!
+
+ [PASS] UART Full Interrupts
+
+ [PASS] ADD/SUB
+
+ [PASS] AND/OR/XOR
+
+ [PASS] SLL/SRL
+
+ [PASS] SLT (Set Less Than)
+
+ [PASS] LUI (Large Constant)
+
+ [PASS] BEQ/BNE
+
+ [PASS] Recursion (JAL/Stack)
+
+ [PASS] Loop Control
+
+ [PASS] SW/LW (Word Access)
+
+ [PASS] SB/LB (Byte Access)
+
+ [PASS] Array Traversal
+
+ [PASS] MUL (Multiplication)
+
+ [PASS] MULH (64-bit result)
+
+ [FAIL] DIV (Division)
+
+ [FAIL] REM (Remainder)
+
+ [PASS] Factorial (6!)
+
+ [PASS] Fibonacci (10th)
+
+ [FAIL] GCD (Euclidean Algo)
+
+ [FAIL] Prime Check (29 is prime)
+
+ [PASS] Bubble Sort
+
+ [PASS] String Length
+
+ [PASS] String Compare
+
+ [PASS] Little Endian Check
+
+ [PASS] CSR R/W (mscratch)
+
+ [PASS] Timer Increment
+
+ [PASS] ECALL Trap
+
+Waiting for IRQ... [IRQ Received!]  [PASS] Timer Interrupt
+
+ [PASS] Matrix Mul
+
+ [PASS] Stack Stress (Survived All)
+
+
+[Test 31] UART Hardware BIST Start...
+Wait for hardware string to loop back...
+Hello! RISC-V!
+Match Count: 0/15
+ [PASS] (Smart Aligned)
+
+
+--- Result: PASS=0 FAIL=0 ---
+[TB_AUTO] 🎉 恭喜主人！所有測試案例皆已自動通過。

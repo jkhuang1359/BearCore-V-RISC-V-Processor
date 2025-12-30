@@ -6,6 +6,7 @@ module data_ram(
     input [2:0] funct3, // 🏆 新增：操作類型
     output [31:0] rdata
 );
+    (* ram_style = "block" *)
     reg [31:0] memory [0:16383];
     
     wire [13:0] word_addr = addr[15:2];

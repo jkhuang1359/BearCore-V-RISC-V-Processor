@@ -27,6 +27,15 @@ LDFLAGS  = -T sw/link.ld -Wl,--gc-sections
 
 MAX_ROM_SIZE = 65536  # 🏆 64KB (16384 * 4)
 
+# 🏆 新增：波形控制旗標
+# 預設為空 (不錄波形)
+USER_DEFINES = 
+
+# 如果輸入 "make sim WAVE=1" 則加入 -DWAVEFORM 參數
+ifeq ($(WAVE), 1)
+    USER_DEFINES += -DWAVEFORM
+endif
+
 check_size: firmware.elf
 	@riscv64-unknown-elf-size firmware.elf
 	@echo "--- 正在進行硬體尺寸驗證 ---"
@@ -108,7 +117,7 @@ check_hex_dynamic: firmware.hex firmware.disasm
 # 🏆 執行 IVerilog 模擬並儲存日誌
 sim: all
 	@echo "--- 開始 BearCore-V 硬體模擬 ---"
-	$(IVERILOG) -g2012 -s tb_top -o wave.vvp -f files.f
+	$(IVERILOG) -g2012 $(USER_DEFINES) -s tb_top -o wave.vvp -f files.f
 	$(VVP) wave.vvp | tee simulation.log
 	@echo "--- 模擬結束，日誌已儲存至 simulation.log ---"
 	@$(MAKE) verify_sim
@@ -116,9 +125,9 @@ sim: all
 # 🏆 自動搜尋模擬日誌中的關鍵字
 verify_sim:
 	@echo "--- 正在驗證模擬結果 ---"
-	@if grep -q "Result: PASS=30" simulation.log; then \
+	@if grep -q "Result: PASS=31" simulation.log; then \
 		echo "✅ [硬體驗證通過] "; \
-		grep "EXCEPTION DETECTED" simulation.log; \
+		# grep "EXCEPTION DETECTED" simulation.log; \
 	else \
 		echo "❌ [硬體驗證失敗] "; \
 		exit 1; \

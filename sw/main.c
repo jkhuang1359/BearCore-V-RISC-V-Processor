@@ -603,6 +603,7 @@ int main() {
         uart_puts("\r\n--- Result: PASS="); print_dec(pass_count);
         uart_puts(" FAIL="); print_dec(fail_count);
         uart_puts(" ---\r\n");
+        uart_puts("--- Test Completed ---");
     }
     return 0;
 }

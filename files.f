@@ -12,6 +12,7 @@
 ./src/data_ram.v
 ./src/uart_tx.v
 ./src/uart_rx.v
+./src/div_unit.v
 
 // 🏆 2. 驗證與測試環境 (Testbench)
 ./tests/bench/tb_top.v

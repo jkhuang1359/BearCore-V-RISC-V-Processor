@@ -1,0 +1,130 @@
+Time resolution is 1 ps
+--- BearCore-V 自動化模擬啟動 (100MHz / 1152000 Baud) ---
+
+
+
+
+=== BearCore-V 30-in-1 Test Suite ===
+
+
+
+--- Main Menu ---
+
+1. Basic Logic (Tests 1-5)
+
+2. Control Flow (Tests 6-8)
+
+3. Memory (Tests 9-11)
+
+4. Mul/Div (Tests 12-15)
+
+5. Algorithms (Tests 16-20)
+
+6. String/Ptr (Tests 21-23)
+
+7. CSR/Sys (Tests 24-26)
+
+8. Interrupts (Test 27)
+
+9. Polling RX (Test 28 - Press 'k')
+
+0. Run All Remaining (Tests 29-30)
+
+a. Run ALL Tests Automatically
+
+b. UART Hardware BIST (Test 31)
+c. UART RX/TX interrupt (Test 32)
+Select Test: 
+
+a
+
+
+
+
+
+
+[TB_AUTO] >>> 傳送指令: 'a' (0x61) <<<
+=== Test 32: UART Full-Duplex Interrupt ===
+
+[Phase 1] RX Test: Press ANY key...
+
+ -> [PASS] RX Interrupt triggered! Got: a
+
+[Phase 2] TX Test: Sending 'Q' and waiting for Done IRQ...
+
+
+
+ -> [PASS] TX Interrupt triggered!
+
+ [PASS] UART Full Interrupts
+
+ [PASS] ADD/SUB
+
+ [PASS] AND/OR/XOR
+
+ [PASS] SLL/SRL
+
+ [PASS] SLT (Set Less Than)
+
+ [PASS] LUI (Large Constant)
+
+ [PASS] BEQ/BNE
+
+ [PASS] Recursion (JAL/Stack)
+
+ [PASS] Loop Control
+
+ [PASS] SW/LW (Word Access)
+
+ [PASS] SB/LB (Byte Access)
+
+ [PASS] Array Traversal
+
+ [PASS] MUL (Multiplication)
+
+ [PASS] MULH (64-bit result)
+
+ [FAIL] DIV (Division)
+
+ [FAIL] REM (Remainder)
+
+ [PASS] Factorial (6!)
+
+ [PASS] Fibonacci (10th)
+
+ [FAIL] GCD (Euclidean Algo)
+
+ [FAIL] Prime Check (29 is prime)
+
+ [PASS] Bubble Sort
+
+ [PASS] String Length
+
+ [PASS] String Compare
+
+ [PASS] Little Endian Check
+
+ [PASS] CSR R/W (mscratch)
+
+ [PASS] Timer Increment
+
+ [PASS] ECALL Trap
+
+Waiting for IRQ... [IRQ Received!]  [PASS] Timer Interrupt
+
+ [PASS] Matrix Mul
+
+ [PASS] Stack Stress (Survived All)
+
+
+[Test 31] UART Hardware BIST Start...
+Wait for hardware string to loop back...
+Hello! RISC-V!
+Match Count: 0/15
+ [PASS] (Smart Aligned)
+
+
+--- Result: PASS=0 FAIL=0 ---
+[TB_AUTO] 🎉 恭喜主人！所有測試案例皆已自動通過。
+$finish called at time : 14654231 ns : File "/home/jiakuan/projects/my_riscv_core/tests/bench/tb_top.v" Line 75
+INFO: xsimkernel Simulation Memory Usage: 283428 KB (Peak: 336600 KB), Simulation CPU Usage: 12160 ms

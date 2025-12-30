@@ -1,4 +1,6 @@
 module alu(
+    input             clk,
+    input             rst_n,
     input      [31:0] a,
     input      [31:0] b,
     input      [3:0]  alu_op,
@@ -6,7 +8,8 @@ module alu(
     input       [6:0] funct7,
     output reg [31:0] result,
     output            zero,
-    output            less   // ✨ 新增輸出：用來判斷比較結果    
+    output            less,   // ✨ 新增輸出：用來判斷比較結果   
+    output reg stall_req      // 🆕 新增：請求暫停訊號 
 );
 
     // 🏆 統一運算碼定義 (建議與 decoder.v 保持絕對一致)
@@ -39,7 +42,28 @@ module alu(
     wire [63:0]        full_mul_uu = a * b;                               // MULHU (U*U)
     wire signed [63:0] full_mul_su = $signed(a) * $signed({1'b0, b});     // MULHSU (S*U)    
 
+    // --- 實例化除法器 ---
+    wire div_ready, div_busy;
+    wire [31:0] div_quot, div_rem;
+    reg div_start;
+    wire div_signed = ~funct3[0];
+
+    div_unit u_div (
+        .clk(clk), 
+        .rst_n(rst_n),
+        .start_i(div_start),
+        .dividend_i(a), 
+        .divisor_i(b),
+        .is_signed_i(div_signed),
+        .quotient_o(div_quot), .remainder_o(div_rem),
+        .ready_o(div_ready), .busy_o(div_busy)
+    );    
+
     always @(*) begin
+        result = 32'd0;
+        stall_req = 1'b0;  // ✨ 預設不暫停
+        div_start = 1'b0;  // ✨ 預設不啟動除法器
+
         case (alu_op)
             ALU_ADD:  result = a + b;
             ALU_SUB:  result = a - b;
@@ -57,8 +81,22 @@ module alu(
             // 🏆 修正後的比較邏輯
             ALU_SLT:  result = (s_a < s_b) ? 32'd1 : 32'd0;
             ALU_SLTU: result = (a < b)     ? 32'd1 : 32'd0;
-            ALU_DIV:  result = (b == 32'd0) ? 32'hFFFFFFFF : (a / b);
-            ALU_REM:  result = (b == 32'd0) ? a : (a % b);
+//            ALU_DIV:  result = 32'd0;//result = (b == 32'd0) ? 32'hFFFFFFFF : (a / b);
+//            ALU_REM:  result = 32'd0;//result = (b == 32'd0) ? a : (a % b);
+            ALU_DIV, ALU_REM: begin
+                if (div_ready) begin
+                    // 計算完成，輸出結果，不請求暫停
+                    result = (alu_op == ALU_DIV) ? div_quot : div_rem;
+                    stall_req = 0;
+                    div_start = 0;
+                end else begin
+                    // 計算中或剛開始
+                    stall_req = 1; // 🚨 請求 CPU 暫停！
+                    // 如果除法器閒置，就啟動它
+                    if (!div_busy) div_start = 1; 
+                    else div_start = 0;
+                end
+            end            
             
             default: begin
                 result = 32'd0;

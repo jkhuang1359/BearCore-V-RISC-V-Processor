@@ -45,11 +45,6 @@ module core(
     wire [31:0] wb_write_data;
 
     // --- 除法暫停邏輯 ---
-    reg [5:0] div_stall_cnt;
-    wire is_real_div = id_is_m_ext && (id_funct3 == 3'b100 || id_funct3 == 3'b110);
-    //wire div_stall = is_real_div && (div_stall_cnt < 6'd32);
-    wire is_div_op = id_is_m_ext && (id_funct3[2] == 1'b1); // 偵測 DIV/REM
-    wire div_stall = is_div_op && (div_stall_cnt < 6'd32);
 
     // 1. 添加 CSR 相關信號
     wire is_csr, is_system, csr_use_imm;
@@ -133,12 +128,6 @@ module core(
     reg [1:0] wb_csr_op;
     reg wb_csr_use_imm;
     reg [11:0] wb_csr_addr;    
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) div_stall_cnt <= 0;
-        else if (div_stall) div_stall_cnt <= div_stall_cnt + 1;
-        else div_stall_cnt <= 0;
-    end    
 
 
     // 1. 偵測 CPU 是否正在進行 UART 資料讀取
@@ -239,6 +228,7 @@ module core(
                      (exc_taken)      ? mtvec        : // 🥈 次要優先：例外或中斷跳轉至 mtvec
                      (mret_taken)     ? mepc         : // 🥉 第三優先：從中斷返回至 mepc
                      (pc + 4);                          // 預設：正常執行下一條指令
+    wire alu_stall_req;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) pc <= 0;
@@ -342,14 +332,14 @@ module core(
         .rst_n(rst_n)
     );
 
+    wire load_hazard = (ex_is_load && (ex_rd_addr != 0) && (ex_rd_addr == id_rs1_addr || ex_rd_addr == id_rs2_addr));
     // --- Hazard & EX Stage ---
     always @(*) begin
-        stall = (ex_is_load && (ex_rd_addr != 0) && (ex_rd_addr == id_rs1_addr || ex_rd_addr == id_rs2_addr)) 
-              || div_stall;
+        stall = load_hazard || alu_stall_req;
     end
     // --- EX Stage ---
     wire final_id_reg_wen = id_reg_wen || id_is_csr;
-
+/*
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n || flush || stall) begin
             ex_pc <= 0; ex_rd_addr <= 0; ex_reg_wen <= 0; ex_mem_wen <= 0; ex_is_branch <= 0;
@@ -362,7 +352,8 @@ module core(
             ex_csr_op <= 2'b0;
             ex_csr_use_imm <= 1'b0;
             ex_csr_addr <= 12'b0;  
-            ex_valid <= 1'b0; // 🏆 Stall 或 Flush 時，向後級傳遞無效信號          
+            ex_valid <= 1'b0; // 🏆 Stall 或 Flush 時，向後級傳遞無效信號    
+            ex_funct3 <= 3'b0; // 記得清空這個      
         end else begin
             ex_pc <= id_pc; ex_imm <= id_imm; ex_rd_addr <= id_rd_addr;
             ex_rs1_addr <= id_rs1_addr; ex_rs2_addr <= id_rs2_addr;
@@ -376,6 +367,61 @@ module core(
             ex_csr_use_imm <= id_csr_use_imm;
             ex_csr_addr <= id_csr_addr;     
             ex_valid <= id_valid; // 🏆 傳遞有效位              
+        end
+    end
+*/
+// --- EX Stage (ID/EX Pipeline Register) ---
+    always @(posedge clk or negedge rst_n) begin
+        // 1. 最高優先級：重置或沖刷 (分支預測錯誤/例外) -> 殺無赦，清空！
+        if (!rst_n || flush) begin
+            ex_pc <= 0;
+            ex_rd_addr <= 0; ex_reg_wen <= 0; ex_mem_wen <= 0; ex_is_branch <= 0;
+            ex_is_jal <= 0; ex_is_jalr <= 0;
+            ex_is_load <= 0;
+            ex_is_lui      <= 0;
+            ex_is_auipc    <= 0;
+            ex_alu_op      <= 4'b0; 
+            ex_is_csr <= 1'b0;
+            ex_is_system <= 1'b0;
+            ex_csr_op <= 2'b0;
+            ex_csr_use_imm <= 1'b0;
+            ex_csr_addr <= 12'b0;  
+            ex_valid <= 1'b0;
+            ex_funct3 <= 3'b0; 
+        
+        // 2. 第二優先級：ALU 請求暫停 (除法中) -> 保持原值 (Freeze)！
+        // 🏆 關鍵修正：這裡不能清空！要讓 ALU 繼續看到當前的指令！
+        end else if (alu_stall_req) begin
+            // Do Nothing (Hold values)
+            
+        // 3. 第三優先級：Load Hazard -> 插入氣泡 (Bubble)
+        // ID 階段因為 Load Use 卡住了，所以往 EX 塞一個 NOP
+        end else if (load_hazard) begin
+            ex_valid <= 1'b0;      // 設為無效
+            ex_reg_wen <= 0;       // 禁止寫入暫存器
+            ex_mem_wen <= 0;       // 禁止寫入記憶體
+            ex_is_branch <= 0;
+            ex_is_jal <= 0; ex_is_jalr <= 0;
+            // 其他控制訊號最好也歸零，但最重要的是 valid 和 wen
+            ex_rd_addr <= 0;
+            
+        // 4. 正常傳遞 (Normal Operation)
+        end else begin
+            ex_pc <= id_pc;
+            ex_imm <= id_imm; ex_rd_addr <= id_rd_addr;
+            ex_rs1_addr <= id_rs1_addr; ex_rs2_addr <= id_rs2_addr;
+            ex_funct3 <= id_funct3; ex_alu_op <= id_alu_op;
+            ex_alu_src_b <= id_alu_src_b;
+            ex_mem_wen <= id_is_store; ex_reg_wen <= final_id_reg_wen; ex_is_load <= id_is_load;
+            ex_is_jal <= id_is_jal; ex_is_jalr <= id_is_jalr;
+            ex_is_branch <= id_is_branch;
+            ex_is_lui <= id_is_lui; ex_is_auipc <= id_is_auipc; ex_rdata1 <= id_rdata1; ex_rdata2 <= id_rdata2;
+            ex_is_csr <= id_is_csr;
+            ex_is_system <= is_system;
+            ex_csr_op <= id_csr_op;
+            ex_csr_use_imm <= id_csr_use_imm;
+            ex_csr_addr <= id_csr_addr;     
+            ex_valid <= id_valid;
         end
     end
 
@@ -395,7 +441,18 @@ module core(
     assign ex_alu_in_b    = (ex_alu_src_b) ? ex_imm : fwd_rs2;
     assign rs2_data_final = fwd_rs2;
 
-    alu u_alu (.a(alu_in_a_final), .b(ex_alu_in_b), .alu_op(ex_alu_op), .result(ex_alu_result), .zero(ex_alu_zero), .less(ex_alu_less));
+
+    alu u_alu ( 
+                .clk(clk),
+                .rst_n(rst_n),
+                .funct3(ex_funct3[2:0]),
+                .a(alu_in_a_final), 
+                .b(ex_alu_in_b), 
+                .alu_op(ex_alu_op), 
+                .result(ex_alu_result), 
+                .zero(ex_alu_zero), 
+                .less(ex_alu_less),
+                .stall_req(alu_stall_req));
 
     reg branch_met;
     always @(*) begin
@@ -425,7 +482,16 @@ module core(
             mem_csr_use_imm <= 1'b0;
             mem_csr_addr <= 12'b0;     
             mem_valid <= 1'b0;       
-        end else begin
+        end
+        else if (alu_stall_req) begin
+            // 🏆 新增：當 ALU 暫停時，往 MEM 階段打入氣泡！
+            // 這樣才不會誤寫入記憶體或暫存器
+            mem_valid <= 0;
+            mem_reg_wen <= 0;
+            mem_mem_wen <= 0;
+            mem_is_jal_jalr <= 0;
+        end    
+        else begin
             mem_alu_result <= ex_alu_result;
             mem_rs2_data <= rs2_data_final;
             mem_rd_addr <= ex_rd_addr; mem_pc_plus_4 <= ex_pc + 4;

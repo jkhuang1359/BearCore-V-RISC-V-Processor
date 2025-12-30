@@ -69,7 +69,7 @@ module tb_top();
         end
 
         // 偵測到結束標籤
-        if (tx_string_buffer[111:0] == "--- Test Completed ---") begin
+        if (tx_string_buffer[79:0] == "FAIL=0 ---") begin
             $display("\n[TB_AUTO] 🎉 恭喜主人！所有測試案例皆已自動通過。");
             #(CLK_PERIOD * 10); // 🏆 縮短到 10 週期，讓它立刻結束
             $finish;
@@ -106,9 +106,13 @@ module tb_top();
         //force u_core.u_uart.test_mode_i = 1;
 
         $display("--- BearCore-V 自動化模擬啟動 (100MHz / %0d Baud) ---", BAUDRATE);
-        $dumpfile("cpu.vcd");
-        $dumpvars(0, tb_top);
 
+        `ifdef WAVEFORM
+            $display("\n[TB] 🌊 波形錄製已開啟 (Writing to cpu.vcd)...");
+            $dumpfile("cpu.vcd");
+            $dumpvars(0, tb_top);
+        `endif        
+        
         rst_n = 0;
         uart_rx_line = 1;
         #(CLK_PERIOD * 20);
