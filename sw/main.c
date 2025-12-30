@@ -9,6 +9,13 @@
 #define MTIME_H     (*(volatile uint32_t*)0x1000000C)
 #define MTIMECMP_L  (*(volatile uint32_t*)0x10000010)
 #define MTIMECMP_H  (*(volatile uint32_t*)0x10000014)
+#define UART_IE     (*(volatile uint32_t*)0x10000018)
+#define UART_TX_IE  (1 << 0)
+#define UART_RX_IE  (1 << 1)
+
+volatile int uart_rx_irq_handled = 0;
+volatile int uart_tx_irq_handled = 0; // 新增 TX 旗標
+volatile char received_char = 0;
 
 // 測試結果統計
 int pass_count = 0;
@@ -344,6 +351,24 @@ uint32_t handle_exception(uint32_t cause, uint32_t epc, uint32_t sp) {
         return sp;
     }
 
+    // 🏆 處理 UART 接收中斷 (Cause 16 / 0x80000010)
+    if (cause == 0x80000010) {
+        // 👉 情況 A: RX Ready (Bit 1)
+        if (UART_STATUS & 0x02) { 
+            received_char = (char)(UART_DATA & 0xFF); // 讀取資料 (清除 Ready)
+            uart_rx_irq_handled = 1;
+        }
+
+        // 👉 情況 B: TX Not Busy (Bit 0 為 0) 且 TX 中斷有被開啟
+        // 注意：我們要檢查目前是否允許 TX 中斷，不然 RX 中斷時也可能 TX Idle
+        if (!(UART_STATUS & 0x01) && (UART_IE & UART_TX_IE)) {
+            // 重要！立刻關閉 TX 中斷，不然出去後會無限觸發！
+            UART_IE &= ~UART_TX_IE; 
+            uart_tx_irq_handled = 1;
+        }
+        return sp;
+    }
+
     uart_puts("\r\n[TRAP] Cause: "); print_hex(cause);
     uart_puts(" EPC: "); print_hex(epc);
     uart_puts(" Halted.\r\n");
@@ -431,6 +456,63 @@ void test_uart_hardware_bist() {
     }
 }
 
+void test_32_uart_rx_interrupt() {
+uart_puts("\r\n=== Test 32: UART Full-Duplex Interrupt ===\r\n");
+
+    // ---------------------------------------------------------
+    // 🟢 Phase 1: RX Interrupt Test
+    // ---------------------------------------------------------
+    uart_rx_irq_handled = 0;
+    received_char = 0;
+    
+    uart_puts("[Phase 1] RX Test: Press ANY key...\r\n");
+
+    // 開啟 RX 中斷
+    UART_IE |= UART_RX_IE; 
+    
+    // 開啟 CPU 全域中斷
+    asm volatile("csrs mie, %0" : : "r"(1 << 16));    
+    asm volatile("csrs mstatus, %0" : : "r"(1 << 3)); 
+
+    // 等待 RX 中斷發生
+    while (!uart_rx_irq_handled) {
+        asm volatile("nop");
+    }
+
+    uart_puts(" -> [PASS] RX Interrupt triggered! Got: ");
+    uart_putc(received_char);
+    uart_puts("\r\n");
+
+    // ---------------------------------------------------------
+    // 🔵 Phase 2: TX Interrupt Test
+    // ---------------------------------------------------------
+    uart_tx_irq_handled = 0;
+    uart_puts("[Phase 2] TX Test: Sending 'Q' and waiting for Done IRQ...\r\n");
+
+    // 步驟 1: 先塞一個字元讓 UART 忙起來
+    // 注意：我們不能用 uart_putc，因為那裏面有 Polling 邏輯
+    // 我們直接寫入 DATA 暫存器
+    UART_DATA = 'Q'; 
+
+    // 步驟 2: 立刻開啟 TX 中斷 (這時 Busy=1，所以還不會觸發)
+    UART_IE |= UART_TX_IE;
+
+    // 步驟 3: 等待 'Q' 送完 -> Busy 變 0 -> 觸發中斷
+    while (!uart_tx_irq_handled) {
+        asm volatile("nop");
+    }
+
+    uart_puts("\r\n -> [PASS] TX Interrupt triggered!\r\n");
+
+    // ---------------------------------------------------------
+    // 🏁 清理戰場
+    // ---------------------------------------------------------
+    asm volatile("csrc mstatus, %0" : : "r"(1 << 3)); // 關閉全域中斷
+    UART_IE = 0; // 關閉所有 UART 中斷
+
+    check(uart_rx_irq_handled && uart_tx_irq_handled, "UART Full Interrupts");
+}
+
 // ============================================================================
 // 4. 主程式選單
 // ============================================================================
@@ -451,9 +533,10 @@ int main() {
         uart_puts("0. Run All Remaining (Tests 29-30)\r\n");
         uart_puts("a. Run ALL Tests Automatically\r\n");
         uart_puts("b. UART Hardware BIST (Test 31)\n");
+        uart_puts("c. UART RX/TX interrupt (Test 32)\n");
         uart_puts("Select Test: \r\n");
 
-        char c = uart_getc();
+        char c = 'a';//uart_getc();
         uart_putc(c);
         uart_puts("\r\n\r\n");
 
@@ -493,6 +576,7 @@ int main() {
                 test_29_matrix_mul(); test_30_stack_stress();
                 break;
             case 'a': // 跑全部
+                test_32_uart_rx_interrupt();
                 test_01_add_sub(); test_02_logic(); test_03_shift(); test_04_slt(); test_05_lui_auipc();
                 test_06_branch(); test_07_recursion(); test_08_loop();
                 test_09_mem_word(); test_10_mem_byte(); test_11_mem_array_sum();
@@ -507,6 +591,9 @@ int main() {
                 break;
             case 'b':
                 test_uart_hardware_bist();
+                break;
+            case 'c':
+                test_32_uart_rx_interrupt();
                 break;
             default:
                 uart_puts("Unknown command.\r\n");

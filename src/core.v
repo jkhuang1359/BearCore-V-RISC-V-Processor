@@ -82,7 +82,15 @@ module core(
     //    - 關鍵優化：如果 EX 階段正在「跳轉」(!ex_take_branch)，則忽略 ID 階段的例外。
     //    - 理由：跳轉指令後的下一條指令是「預取雜訊」，不應觸發 Illegal TRAP 。
     //    - 外部中斷 (timer_int_final) 則不受此限，隨時可觸發 
-    wire exc_taken = (id_sw_exc && !ex_take_branch) || timer_int_final;
+
+    // --- 6. 中斷產生邏輯 (Interrupt Logic) ---
+    // 當 (接收到資料且開啟 RX_IE) 或 (發送空閒且開啟 TX_IE) 時觸發
+    wire uart_irq_raw = (uart_rx_ready && reg_uart_ie[1]) || 
+                        (!uart_busy && reg_uart_ie[0]);
+
+    wire uart_int_final = tx_test_en ? 1'b0 : (uart_irq_raw && mie_reg[16] && mstatus_mie && !ex_take_branch);
+
+    wire exc_taken = (id_sw_exc && !ex_take_branch) || timer_int_final || uart_int_final;
 
     wire mstatus_mie;                   
 
@@ -97,6 +105,7 @@ module core(
     // 🏆 修正：只有在 EX 階段「沒有」要跳轉時，才允許觸發中斷
     // 這樣可以確保 EPC (mepc) 抓到的是穩定的位址，而不是被 Flush 掉的 0
     wire timer_int_final = timer_int_raw && mie_reg[7] && mstatus_mie && !ex_take_branch;
+
 
     wire mret_taken = (is_system && (id_inst == 32'h30200073));   // MRET
 
@@ -167,6 +176,58 @@ module core(
         .ready_o(uart_rx_ready)
     );    
 
+    // =============================================================================
+    // BearCore-V Peripheral Control & Address Decoder
+    // =============================================================================
+
+    // --- 1. 內部暫存器定義 ---
+    reg [31:0] reg_uart_ie;   // 0x1000_0018 (Bit 1:RX_IE, Bit 0:TX_IE)
+
+    // --- 2. 位址解碼訊號 ---
+    // 我們檢查高位址是否為 0x1000xxxx
+    wire is_mmio_access = (mem_alu_result[31:16] == 16'h1000);
+
+    // --- 3. 寫入控制 (Peripheral Write) ---
+    // 當 mem_we 為 1 且位址正確時，根據偏移量寫入暫存器
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            reg_uart_ie   <= 32'h0; // Reset 中斷預設全關
+        end else if (mem_mem_wen && mem_valid && mem_is_uart_ie) begin
+            reg_uart_ie   <= mem_rs2_data; // 寫入中斷致能
+                // 0x04 (Status) 是唯讀的，不處理寫入
+                // Timer 部分通常有獨立的 MTIME/MTIMECMP 暫存器邏輯
+            
+        end
+    end
+
+    // --- 4. 觸發 UART 傳送脈衝 ---
+    // 當寫入 0x1000_0000 且沒開啟 BIST 時，觸發一次正常的 UART 傳送
+
+    // --- 5. 讀取多路選擇器 (Read Mux) ---
+    // 根據位址決定回傳給 CPU 的資料
+/*    
+    always @(*) begin
+        if (is_mmio) begin
+            case (mem_addr[7:0])
+                8'h00: mem_mmio_rdata = {reg_uart_ctrl[31:8], uart_rx_data_o}; // 資料與模式位元
+                8'h04: mem_mmio_rdata = {30'b0, uart_rx_ready_i, uart_tx_busy_i};
+                8'h08: mem_mmio_rdata = mtime[31:0];
+                8'h0C: mem_mmio_rdata = mtime[63:32];
+                8'h10: mem_mmio_rdata = mtimecmp[31:0];
+                8'h14: mem_mmio_rdata = mtimecmp[63:32];
+                8'h18: mem_mmio_rdata = reg_uart_ie;
+                default: mem_mmio_rdata = 32'h0;
+            endcase
+        end else begin
+            mem_mmio_rdata = 32'h0;
+        end
+    end
+*/    
+
+
+
+    // 🛡️ 安全機制：當 BIST Mode (Bit 31) 開啟時，自動遮罩中斷防止 CPU 崩潰
+    // 將此訊號連往您的 CSR 模組中的 mip[16] (或是自定義的外部中斷位元)
 
     // --- IF Stage ---
 
@@ -177,7 +238,7 @@ module core(
     assign pc_next = (ex_take_branch) ? ex_target_pc : // 🥇 最高優先：EX 階段確定的跳轉/分支
                      (exc_taken)      ? mtvec        : // 🥈 次要優先：例外或中斷跳轉至 mtvec
                      (mret_taken)     ? mepc         : // 🥉 第三優先：從中斷返回至 mepc
-                    (pc + 4);                          // 預設：正常執行下一條指令
+                     (pc + 4);                          // 預設：正常執行下一條指令
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) pc <= 0;
@@ -241,7 +302,7 @@ module core(
     // 5. 處理例外原因
     always @(*) begin
         if (id_is_illegal) begin
-            exc_cause = 32'h00000002;  // 例外：非法指令 (Cause = 2, Bit 31 = 0) [cite: 103]
+            exc_cause = 32'h00000002;  // 例外：非法指令 (Cause = 2, Bit 31 = 0)
             exc_tval  = id_inst;   // 把錯誤的機器碼存進 tval
         end    
         else if (is_system) begin
@@ -255,7 +316,7 @@ module core(
                     exc_tval = 32'h0;
                 end
                 default: begin
-                    exc_cause = 32'h00000002;  // 例外：非法指令 (Cause = 2, Bit 31 = 0) [cite: 103]
+                    exc_cause = 32'h00000002;  // 例外：非法指令 (Cause = 2, Bit 31 = 0) 
                     exc_tval = id_inst;
                 end
             endcase
@@ -266,7 +327,10 @@ module core(
             exc_cause = 32'h80000007;  // 中斷：Machine Timer (Bit 31 = 1, Code = 7)
             exc_tval  = 32'h0;
         end 
-        else begin
+        else if (uart_int_final) begin // 🥇 這裡是我們新加的！
+            exc_cause = 32'h80000010; // 中斷編號 16 (0x10)
+            exc_tval  = 32'h0;        
+        end else begin
             exc_cause = 32'h0;
             exc_tval = 32'h0;
         end
@@ -386,6 +450,7 @@ module core(
     wire mem_is_uart_status = (mem_alu_result == 32'h10000004); 
     wire mem_is_cycle_cnt   = (mem_alu_result == 32'h10000008); 
     wire mem_is_inst_cnt    = (mem_alu_result == 32'h1000000C); 
+    wire mem_is_uart_ie     = (mem_alu_result == 32'h10000018);
     
     // 🏆 2. 周邊裝置實例化
     wire [31:0] mem_ram_rdata;
@@ -417,12 +482,15 @@ module core(
             rx_test_en <= mem_rs2_data[30]; 
         end
     end    
-
+/*
+    wire uart_tx_start = mem_mem_wen && mem_valid && is_mmio_access && 
+                         (mem_alu_result[7:0] == 8'h00) && !reg_uart_ctrl[31];
+*/
     uart_tx #(  .CLK_FREQ(100000000),
                 .BAUD_RATE(1152000)  // 🏆 新增這行，與 tb_top.v 一致
     ) u_uart(
         .clk(clk), .rst_n(rst_n), 
-        .data_i(mem_rs2_data[7:0]), .valid_i(uart_real_tx_en), 
+        .data_i(mem_rs2_data[7:0]), .valid_i(uart_real_tx_en), //uart_real_tx_en
         .busy_o(uart_busy), .tx_o(uart_tx_o), .test_mode_i(tx_test_en)
     ); 
 
@@ -479,6 +547,8 @@ module core(
             mem_final_rdata = mtimecmp[31:0];
         end else if (mem_alu_result == 32'h10000014) begin // mtimecmp_h
             mem_final_rdata = mtimecmp[63:32];
+        end else if (mem_alu_result == 32'h10000018) begin
+            mem_final_rdata = reg_uart_ie; // 🥇 讓軟體能讀回中斷開關狀態
         end else if (mem_is_csr) begin                   
             mem_final_rdata = csr_rdata; // 🏆 關鍵：把 CSR 值放進來            
         end else if (is_rom_data_access && !mem_mem_wen) begin

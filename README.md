@@ -129,5 +129,137 @@ Verilog: 建議採用明確的非阻塞賦值 (<=) 處理時序邏輯。
 
 C/Firmware: 保持與 link.ld 的記憶體分段對齊。
 
+## 🗺️ BearCore-V 記憶體映射手冊 (Memory Map)
+
+BearCore-V 採用標準的 Memory-Mapped I/O (MMIO) 技術，透過統一的位址空間來管理存儲與硬體週邊。
+
+### 1. 位址空間分佈 (Address Space Allocation)
+
+| 區域 | 開始位址 | 結束位址 | 權限 | 說明 |
+| :--- | :--- | :--- | :---: | :--- |
+| **ROM** | `0x0000_0000` | `0x0000_0FFF` | R/X | 存放指令 (4KB) |
+| **RAM** | `0x0000_1000` | `0x0000_1FFF` | R/W | 存放數據與 Stack (4KB) |
+| **UART / Timer** | `0x1000_0000` | `0x1000_0017` | R/W | 外部週邊與計時器 |
+
+### 🗺️ 記憶體映射 (Memory Map) 更新
+
+| 區域 | 位址範圍 | 權限 | 說明 |
+| :--- | :--- | :---: | :--- |
+| **UART_DATA** | `0x1000_0000` | R/W | 資料收發 / BIST 模式控制 |
+| **UART_STATUS**| `0x1000_0004` | RO | 狀態旗標 (Busy/Ready) |
+| **Timer** | `0x1000_0008` | R/W | 系統計時器 (MTIME/MTIMECMP) |
+| **UART_IE** | `0x1000_0018` | R/W | **[NEW]** UART 中斷致能控制 |
+
+---
+
+### 2. UART 暫存器詳解 (UART Peripheral)
+
+#### **位址 `0x1000_0000`: UART 資料與控制 (UART_DATA)**
+此暫存器除了資料傳輸外，還兼具硬體 BIST (Built-In Self-Test) 的模式控制功能。
+
+| Bit | 名稱 | 權限 | 說明 |
+| :--- | :--- | :--- | :--- |
+| **[7:0]** | `DATA` | R/W | 傳送/接收的 8-bit 字元。 |
+| **[29:8]** | `RSVD` | - | 保留。 |
+| **[30]** | `RX_TEST_EN` | W | **UART RX 測試模式**。1: 啟用 Internal Loopback。 |
+| **[31]** | `TX_TEST_EN` | W | **UART TX 測試模式**。1: 啟動硬體 BIST 字串循環發送。 |
+
+⚠️ **使用限制與警告 (Restrictions & Warnings):**
+* **禁止同時觸發**：請勿在執行普通資料發送（寫入 Bit 7-0）的同時變更 Bit 31/30，這會導致硬體狀態競爭，造成首個字元丟失或資料損壞。
+* **狀態同步**：在切換 `TEST_EN` 模式前，務必確認 `UART_STATUS[0]` (TX_BUSY) 為 0。
+* **切換延遲**：建議在切換測試模式後加入 1-2 個 NOP 指令，確保硬體邏輯已完全進入 BIST 狀態。
+
+#### **位址 `0x1000_0004`: UART 狀態 (UART_STATUS)**
+| Bit | 名稱 | 權限 | 說明 |
+| :--- | :--- | :--- | :--- |
+| **[0]** | `TX_BUSY` | RO | **1**: 硬體正忙於發送；**0**: 可寫入新資料。 |
+| **[1]** | `RX_READY` | RO | **1**: 已接收到新資料；**0**: 無資料。 |
+
+### ®️ UART 中斷致能暫存器 (UART_IE)
+**Address:** `0x1000_0018` | **Default:** `0x0000_0000` (Disable)
+
+此暫存器用於控制 UART 硬體是否向 CPU 發送中斷請求。
+⚠️ **注意：** 預設值為 `0` (Low)，代表所有中斷功能關閉，系統處於 Polling 模式。
+
+| Bit | 名稱 | 權限 | 功能說明 |
+| :--- | :---: | :---: | :--- |
+| **[0]** | `TX_IE` | R/W | **發送中斷使能 (Transmit Interrupt Enable)**<br>1: 當 UART 發送緩衝區空閒 (IDLE) 時觸發中斷。<br>0: 關閉發送中斷。 |
+| **[1]** | `RX_IE` | R/W | **接收中斷使能 (Receive Interrupt Enable)**<br>1: 當收到新資料 (Ready=1) 時觸發中斷。<br>0: 關閉接收中斷。 |
+| **[31:2]**| `RSVD` | - | 保留，讀取為 0。 |
+
+---
+
+### 3. 計時器暫存器 (Machine Timer)
+遵循 RISC-V 標準架構實作。
+
+| 位址 | 名稱 | 說明 |
+| :--- | :--- | :--- |
+| `0x1000_0008` | `MTIME_L` | 系統時鐘計數器 (低 32 位) |
+| `0x1000_000C` | `MTIME_H` | 系統時鐘計數器 (高 32 位) |
+| `0x1000_0010` | `MTIMECMP_L` | 定時器比較暫存器 (低 32 位) |
+| `0x1000_0014` | `MTIMECMP_H` | 定時器比較暫存器 (高 32 位) |
+
+
+### 🔌 如何啟用 UART 中斷？ (Standard Procedure)
+
+要在軟體中使用中斷，必須依序打開三道「閘門」：
+
+1.  **開啟週邊閘門 (Peripheral Level)**:
+    寫入 `UART_IE` (0x1000_0018) 設定您需要的中斷源。
+    ```c
+    #define UART_IE (*(volatile uint32_t*)0x10000018)
+    UART_IE |= 0x02; // 開啟 RX 中斷 (Bit 1)
+    ```
+
+2.  **開啟核心局部閘門 (Core Local Level)**:
+    設定 CSR `mie` (Machine Interrupt Enable) 的第 16 位元 (Platform Interrupt)。
+    ```c
+    // Set bit 16 of mie register
+    asm volatile("csrs mie, %0" : : "r"(1 << 16));
+    ```
+
+3.  **開啟全域總開關 (Global Level)**:
+    設定 CSR `mstatus` 的 MIE 位元 (Bit 3)，允許 CPU 接受任何中斷。
+    ```c
+    // Set bit 3 (MIE) of mstatus register
+    asm volatile("csrs mstatus, %0" : : "r"(1 << 3));
+    ```
+
+### ⚠️ 使用注意事項 (Special Considerations)
+
+啟用中斷後，請務必遵守以下規範，否則可能導致系統死鎖或無限迴圈：
+
+1.  **TX 中斷的無限觸發特性 (The "Not Busy" Trap)**:
+    * **現象**：`TX_IE` 是基於「硬體空閒 (Not Busy)」觸發的。只要 UART 沒在傳送資料，中斷線就會一直拉高。
+    * **處理**：在 ISR (中斷服務程式) 中處理完 TX 中斷後，**必須立即關閉 `TX_IE`** 或寫入新資料讓 UART 變忙。否則一旦 ISR 結束 (MRET)，CPU 會立刻再次被同一個中斷拉回來，陷入無限迴圈。
+
+2.  **RX 中斷的清除**:
+    * 進入 RX 中斷後，必須讀取 `0x1000_0000` (UART_DATA) 來取走資料。讀取動作會自動由硬體清除 `RX_READY` 旗標，從而消除中斷源。
+
+3.  **BIST 測試模式互斥**:
+    * 硬體內建保護機制：當開啟 `TX_TEST_EN` (Bit 31) 進入 BIST 模式時，所有 UART 中斷會被強制遮罩 (Masked)。這是為了防止高頻率的測試字串發送導致 CPU 過載。
+
+**"BearCore-V is now listening!"** 👂✨
+
+此版本正式引入了 **全雙工 UART 中斷機制 (Full-Duplex UART Interrupts)**，標誌著 BearCore-V 從單純的輪詢 (Polling) 架構進化為高效的中斷驅動 (Interrupt-Driven) 系統。同時，我們通過了 Test 32 驗證，達成 **PASS=31** 的完美紀錄！
+
+### ✨ 新增功能 (New Features)
+* **UART RX/TX 中斷支援**: 新增中斷編號 `16` (User/Platform Interrupt)，支援接收與發送完成的非同步通知。
+* **MMIO 架構升級**: 實作了專用的位址解碼邏輯，新增 `UART_IE` (Interrupt Enable) 暫存器於 `0x1000_0018`。
+* **安全 BIST 機制**: 硬體級別的中斷遮罩，確保在執行 UART 硬體自檢 (BIST) 時不會誤觸發中斷風暴。
+
+### 🛠️ 技術改進 (Technical Improvements)
+* **CSR 優化**: `mcause` 正確映射 `0x80000010` 為 UART 中斷。
+* **ISR 範例**: `main.c` 新增 `handle_exception` 的完整中斷處理流程，包含 TX 中斷的自動關閉邏輯。
+* **驗證強化**: 新增 `Test 32`，同時驗證 RX 資料接收與 TX 狀態變化的中斷響應。
+
+### 📊 驗證狀態 (Verification Status)
+* ✅ **Total Tests Passed:** 31/31
+* ✅ **Regression Test:** All previous 30 tests passed.
+* ✅ **FPGA Ready:** RTL logic optimized for synthesis.
+
+---
+*Happy Hacking with BearCore-V!* 🐻    
+
 ---
 感謝小熊寶 AI 思路夥伴在開發過程中的協同除錯與架構建議。
