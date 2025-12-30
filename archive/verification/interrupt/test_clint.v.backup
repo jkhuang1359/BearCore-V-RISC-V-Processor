@@ -1,0 +1,136 @@
+`timescale 1ns/1ps
+
+module test_clint;
+    reg clk;
+    reg rst_n;
+    reg bus_en;
+    reg bus_we;
+    reg [31:0] bus_addr;
+    reg [31:0] bus_wdata;
+    wire [31:0] bus_rdata;
+    wire bus_ready;
+    wire timer_irq;
+    wire software_irq;
+    
+    // 实例化CLINT
+    clint u_clint (
+        .clk(clk),
+        .rst_n(rst_n),
+        .bus_en(bus_en),
+        .bus_we(bus_we),
+        .bus_addr(bus_addr),
+        .bus_wdata(bus_wdata),
+        .bus_rdata(bus_rdata),
+        .bus_ready(bus_ready),
+        .timer_irq_o(timer_irq),
+        .software_irq_o(software_irq),
+        .irq_enable(1'b1),
+        .timer_mode(2'b01)
+    );
+    
+    // 时钟生成
+    always #5 clk = ~clk;
+    
+    // 测试任务：写入寄存器
+    task write_reg;
+        input [31:0] addr;
+        input [31:0] data;
+        begin
+            @(posedge clk);
+            bus_en = 1'b1;
+            bus_we = 1'b1;
+            bus_addr = addr;
+            bus_wdata = data;
+            @(posedge clk);
+            while (!bus_ready) @(posedge clk);
+            bus_en = 1'b0;
+            bus_we = 1'b0;
+            #10;
+        end
+    endtask
+    
+    // 测试任务：读取寄存器
+    task read_reg;
+        input [31:0] addr;
+        output [31:0] data;
+        begin
+            @(posedge clk);
+            bus_en = 1'b1;
+            bus_we = 1'b0;
+            bus_addr = addr;
+            @(posedge clk);
+            while (!bus_ready) @(posedge clk);
+            data = bus_rdata;
+            bus_en = 1'b0;
+            #10;
+        end
+    endtask
+
+    reg [31:0] read_data;
+    
+    initial begin
+        $dumpfile("clint_test.vcd");
+        $dumpvars(0, test_clint);
+        
+        // 初始化
+        clk = 0;
+        rst_n = 0;
+        bus_en = 0;
+        bus_we = 0;
+        bus_addr = 0;
+        bus_wdata = 0;
+
+        read_data = 32'd0;
+        
+        // 复位
+        #20 rst_n = 1;
+        
+        $display("=== CLINT 独立测试开始 ===");
+        
+        // 测试1：软件中断
+        $display("测试1：软件中断控制");
+        write_reg(32'h02000000, 32'h1);  // 触发软件中断
+        #10;
+        if (software_irq) $display("  ✅ 软件中断触发成功");
+        else $display("  ❌ 软件中断失败");
+
+        write_reg(32'h02000000, 32'h0);  // 清除软件中断
+        #10;
+        if (!software_irq) $display("  ✅ 软件中断清除成功");
+        else $display("  ❌ 软件中断清除失败");
+        
+        // 测试2：定时器中断
+        $display("\n测试2：定时器中断");
+        
+        // 设置定时器比较值为1000
+        write_reg(32'h02004000, 32'h0000000A);  // 低32位 = 10（减少等待时间）
+        write_reg(32'h02004004, 32'h00000000);  // 高32位
+        
+        // 等待定时器递增
+        #200;  // 等待200个时钟周期
+        
+        if (timer_irq) $display("  ✅ 定时器中断触发成功");
+        else $display("  ❌ 定时器中断失败");
+        
+        // 测试3：寄存器读写
+        $display("\n测试3：寄存器读写测试");
+        begin
+            read_reg(32'h0200BFF8, read_data);  // 读取MTIME低32位
+            $display("  MTIME低32位: 0x%08h", read_data);
+            
+            read_reg(32'h0200BFFC, read_data);  // 读取MTIME高32位
+            $display("  MTIME高32位: 0x%08h", read_data);
+        end
+        
+        $display("\n=== CLINT 独立测试完成 ===");
+        
+        #100 $finish;
+    end
+    
+    // 监视中断信号
+    always @(posedge clk) begin
+        if (software_irq) $display("[%0t] 软件中断触发", $time);
+        if (timer_irq) $display("[%0t] 定时器中断触发", $time);
+    end
+    
+endmodule

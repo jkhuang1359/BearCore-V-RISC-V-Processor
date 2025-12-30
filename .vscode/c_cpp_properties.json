@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "BearCore-V-RISCV",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/src/include" 
+            ],
+            "defines": [
+                "SIMULATION" 
+            ],
+            "compilerPath": "/usr/bin/riscv64-unknown-elf-gcc",
+            "cStandard": "c11",
+            "intelliSenseMode": "linux-gcc-riscv32",
+            "browse": {
+                "path": ["${workspaceFolder}/src"],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ],
+    "version": 4
+}

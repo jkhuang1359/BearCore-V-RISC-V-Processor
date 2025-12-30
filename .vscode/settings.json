@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "*.ld": "linkscript",
+        "*.v": "verilog",
+        "*.s": "riscv",
+        "stdint.h": "c"
+    },
+    "disasexpl.useBinaryParsing": true, // 🏆 必須開啟
+    "disasexpl.associations": {
+        "**/*.c": "/home/jiakuan/projects/my_riscv_core/firmware.disasm"
+    }
+}

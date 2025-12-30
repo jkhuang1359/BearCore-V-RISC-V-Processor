@@ -1,18 +1,31 @@
-# 編譯產生的暫存檔
-*.elf
-*.bin
-*.hex
+# Vivado generated files
+*.jou
+*.log
+*.pb
+*.wdb
+*.wdf
+*.str
+*.lpr
+.Xil/
+vivado_pid*.str
+
+# Vivado project directories (temporary builds)
+vivado_fpga/
+vivado_temp/
+vivado_*.backup.*
+
+# Simulation files
+work/
+transcript
+vsim.wlf
 *.vvp
 *.vcd
 *.fst
+
+# Software build artifacts
+*.elf
+*.bin
+*.hex
 *.disasm
-*.symbols
 *.map
-simulation.log
-
-# 備份檔
-*.backup
-*copy.f
-
-# 編輯器暫存
-.vscode/
+*.o

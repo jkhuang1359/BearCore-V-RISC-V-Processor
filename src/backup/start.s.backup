@@ -1,0 +1,19 @@
+# src/start.s
+.section .text.init
+.global _start
+
+_start:
+    # 🏆 硬體冒煙測試
+    li t0, 0x10000000
+    li t1, 0x47       # 'G' 代表 Go
+    sw t1, 0(t0)      # 直接在彙編階段印一個字元
+
+    # 設定堆疊頂端於 0x00008000
+    lui sp, 0x8
+    
+    # 🏆 跳轉到 C 主函數
+    jal ra, main      # 跳轉到 C
+
+loop:
+    j loop
+    
