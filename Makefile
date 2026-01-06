@@ -36,6 +36,10 @@ ifeq ($(WAVE), 1)
     USER_DEFINES += -DWAVEFORM
 endif
 
+ifeq ($(SIMU), 1)
+    USER_DEFINES += -DSIMULATION
+endif
+
 check_size: firmware.elf
 	@riscv64-unknown-elf-size firmware.elf
 	@echo "--- 正在進行硬體尺寸驗證 ---"
@@ -58,7 +62,7 @@ all: firmware.hex disasm check_layout check_hex_dynamic check_size
 # --- 4. 韌體編譯規則 ---
 
 firmware.elf: $(SW_SOURCES) sw/link.ld
-	$(CC) $(CFLAGS) $(INCLUDES) -DSIMULATION $(SW_SOURCES) $(LDFLAGS) -o $@
+	$(CC) $(CFLAGS) $(INCLUDES) $(SW_SOURCES) $(LDFLAGS) -o $@
 	@echo "✅ 編譯完成: firmware.elf"
 	$(SIZE) $@
 

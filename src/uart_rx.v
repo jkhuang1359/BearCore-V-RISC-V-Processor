@@ -1,3 +1,4 @@
+`timescale 1ns/1ps  // <--- 🐻 關鍵修正：定義時間單位！
 module uart_rx #(
     parameter CLK_FREQ = 50000000,
     parameter BAUD_RATE = 115200

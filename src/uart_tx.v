@@ -1,3 +1,4 @@
+`timescale 1ns/1ps  // <--- 🐻 關鍵修正：定義時間單位！
 module uart_tx #(
     parameter CLK_FREQ = 100000000,
     parameter BAUD_RATE = 1152000 // 🚀 提醒：主人的模擬是 1152000

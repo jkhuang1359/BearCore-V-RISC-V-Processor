@@ -58,6 +58,7 @@ module tb_top();
 
             case (test_stage)
                 1: send_user_input("a"); // 第一次選 CSR
+                2: send_user_input(" "); //
                 3: send_user_input(" "); //
                 5: send_user_input(" "); // 
                 7: send_user_input(" "); // 
@@ -119,7 +120,7 @@ module tb_top();
         rst_n = 1;
 
         // 🏆 如果 50ms 沒跑完就強制結束
-        #(50_000_000); 
+        #(20_000_000); 
         $display("\n[TIMEOUT] 模擬超時，強制終止。");
         $finish; 
     end

@@ -1,3 +1,4 @@
+`timescale 1ns/1ps  // <--- 🐻 關鍵修正：定義時間單位！
 module reg_file(
     input clk,
     input rst_n,

@@ -1,3 +1,4 @@
+`timescale 1ns/1ps  // <--- 🐻 關鍵修正：定義時間單位！
 module decoder(
     input  [31:0] inst,
 

@@ -1,3 +1,4 @@
+`timescale 1ns/1ps  // <--- 🐻 關鍵修正：定義時間單位！
 module rom (
     input [31:0] addr,
     output [31:0] inst,
@@ -28,7 +29,8 @@ module rom (
         if ($test$plusargs("debug")) begin
             $display("[ROM] 開始加載 firmware.hex");
         end
-        $readmemh("firmware.hex", mem);
+        
+        $readmemh("firmware.hex", mem, 0, ROM_DEPTH-1);
         
         // 🏆 調試信息：顯示前幾條指令
         if ($test$plusargs("debug")) begin

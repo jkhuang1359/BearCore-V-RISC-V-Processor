@@ -62,7 +62,7 @@ set timing_paths [get_timing_paths -max_paths 1 -nworst 1 -setup]
 
 if {[llength $timing_paths] > 0} {
     set wns [get_property SLACK $timing_paths]
-    puts "🎯 Target Clock: 100 MHz (10.000 ns)"
+    puts "🎯 Target Clock: 40 MHz (25.000 ns)"
 
     if {$wns < 0} {
         puts "❌ TIMING FAILED! WNS: $wns ns"
