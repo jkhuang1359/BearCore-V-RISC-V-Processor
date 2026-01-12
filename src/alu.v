@@ -36,13 +36,14 @@ module alu(
 
     integer i; 
 
+    reg [63:0] mul_res_reg;
+    reg        mul_busy;  
+
+    wire is_mul_op = (alu_op >= 4'd9 && alu_op <= 4'd12);
+
     // 建立有符號影子變數，確保比較邏輯正確
     wire signed [31:0] s_a = a;
-    wire signed [31:0] s_b = b;
-
-    wire signed [63:0] full_mul_ss = $signed(a) * $signed(b);             // MULH (S*S)
-    wire [63:0]        full_mul_uu = a * b;                               // MULHU (U*U)
-    wire signed [63:0] full_mul_su = $signed(a) * $signed({1'b0, b});     // MULHSU (S*U)    
+    wire signed [31:0] s_b = b;  
 
     // --- 實例化除法器 ---
     wire div_ready, div_busy;
@@ -61,50 +62,74 @@ module alu(
         .ready_o(div_ready), .busy_o(div_busy)
     );    
 
+    // 2. 乘法 Pipeline 邏輯
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mul_res_reg <= 64'b0;
+            mul_busy    <= 1'b0;
+        end else if (is_mul_op && !mul_busy) begin
+            mul_busy <= 1'b1; // 開始運算，下一拍結束
+            case (alu_op)
+                4'd9:  mul_res_reg <= $signed(a) * $signed(b);             // MUL 
+                4'd10: mul_res_reg <= $signed(a) * $signed(b);             // MULH 
+                4'd11: mul_res_reg <= $signed(a) * $signed({1'b0, b});     // MULHSU
+                4'd12: mul_res_reg <= a * b;                               // MULHU
+            endcase
+        end else begin
+            mul_busy <= 1'b0;
+        end
+    end    
+
     always @(*) begin
         result = 32'd0;
         stall_req = 1'b0;  // ✨ 預設不暫停
         div_start = 1'b0;  // ✨ 預設不啟動除法器
 
-        case (alu_op)
-            ALU_ADD:  result = a + b;
-            ALU_SUB:  result = a - b;
-            ALU_AND:  result = a & b;
-            ALU_OR:   result = a | b;
-            ALU_XOR:  result = a ^ b;
-            ALU_SLL:  result = a << b[4:0];
-            ALU_SRL:  result = a >> b[4:0];
-            ALU_SRA:  result = s_a >>> b[4:0]; // 直接用 s_a 即可
-            ALU_MUL:    result = full_mul_ss[31:0];  // MUL: 取低位
-            ALU_MULH:   result = full_mul_ss[63:32]; // MULH: 取有號高位
-            ALU_MULHU:  result = full_mul_uu[63:32]; // MULHU: 取無號高位
-            ALU_MULHSU: result = full_mul_su[63:32]; // MULHSU: 取混和高位
-
-            // 🏆 修正後的比較邏輯
-            ALU_SLT:  result = (s_a < s_b) ? 32'd1 : 32'd0;
-            ALU_SLTU: result = (a < b)     ? 32'd1 : 32'd0;
-//            ALU_DIV:  result = 32'd0;//result = (b == 32'd0) ? 32'hFFFFFFFF : (a / b);
-//            ALU_REM:  result = 32'd0;//result = (b == 32'd0) ? a : (a % b);
-            ALU_DIV, ALU_REM: begin
-                if (div_ready) begin
-                    // 計算完成，輸出結果，不請求暫停
-                    result = (alu_op == ALU_DIV) ? div_quot : div_rem;
-                    stall_req = 0;
-                    div_start = 0;
-                end else begin
-                    // 計算中或剛開始
-                    stall_req = 1; // 🚨 請求 CPU 暫停！
-                    // 如果除法器閒置，就啟動它
-                    if (!div_busy) div_start = 1; 
-                    else div_start = 0;
-                end
-            end            
-            
-            default: begin
-                result = 32'd0;
-                // 調試輸出：如果執行到這裡，說明 alu_op 不是預期的值
+        if (is_mul_op) begin
+            if (mul_busy) begin
+                stall_req = 0; // 運算結束
+                case (alu_op)
+                    ALU_MUL:  result = mul_res_reg[31:0];
+                    default: result = mul_res_reg[63:32];
+                endcase
+            end else begin
+                stall_req = 1; // 請求第一拍暫停
             end
-        endcase
+        end else if (alu_op == ALU_DIV || alu_op == ALU_REM) begin
+                    if (div_ready) begin
+                        // 計算完成，輸出結果，不請求暫停
+                        result = (alu_op == ALU_DIV) ? div_quot : div_rem;
+                        stall_req = 0;
+                        div_start = 0;
+                    end else begin
+                        // 計算中或剛開始
+                        stall_req = 1; // 🚨 請求 CPU 暫停！
+                        // 如果除法器閒置，就啟動它
+                        if (!div_busy) div_start = 1; 
+                        else div_start = 0;
+                    end
+        end
+        else begin
+            case (alu_op)
+                ALU_ADD:  result = a + b;
+                ALU_SUB:  result = a - b;
+                ALU_AND:  result = a & b;
+                ALU_OR:   result = a | b;
+                ALU_XOR:  result = a ^ b;
+                ALU_SLL:  result = a << b[4:0];
+                ALU_SRL:  result = a >> b[4:0];
+                ALU_SRA:  result = s_a >>> b[4:0]; // 直接用 s_a 即可
+
+                // 🏆 修正後的比較邏輯
+                ALU_SLT:  result = (s_a < s_b) ? 32'd1 : 32'd0;
+                ALU_SLTU: result = (a < b)     ? 32'd1 : 32'd0;
+                      
+                default: begin
+                    result = 32'd0;
+                    // 調試輸出：如果執行到這裡，說明 alu_op 不是預期的值
+                end
+            endcase
+        end
     end
 
 // --- 修改 alu.v 最後兩行 ---

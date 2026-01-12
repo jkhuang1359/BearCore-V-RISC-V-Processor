@@ -222,12 +222,16 @@ module core(
                     timer_int_final ? 32'h80000007 :
                     uart_int_final ? 32'h80000010 :
                     32'b0;    
+
+    wire sel_ex_target  = ex_take_branch;     
+    wire sel_exc_target = !ex_take_branch && final_exc_taken; 
+    wire sel_mret_target = !ex_take_branch && !final_exc_taken && mret_taken;                     
     
     // --- IF Stage ---
     // 🚨 修改後：
-    assign pc_next =    (ex_take_branch) ? ex_target_pc : // 🥇 最高優先
-                        (final_exc_taken) ? mtvec       : // 🥈 次要優先（使用 final_exc_taken）
-                        (mret_taken)      ? mepc        : // 🥉 第三優先
+    assign pc_next =    (sel_ex_target) ? ex_target_pc : // 🥇 最高優先
+                        (sel_exc_target) ? mtvec       : // 🥈 次要優先（使用 final_exc_taken）
+                        (sel_mret_target)      ? mepc        : // 🥉 第三優先
                         (pc + 4);
 
     wire alu_stall_req;

@@ -2,7 +2,7 @@
 set_property PACKAGE_PIN W5 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 # 這裡定義時脈約束，告訴 Vivado 我們要跑 100MHz (10ns)
-create_clock -add -name sys_clk_pin -period 25.00 -waveform {0 12.5} [get_ports clk]
+create_clock -add -name sys_clk_pin -period 20.00 -waveform {0 10} [get_ports clk]
 
 ## 2. 重置訊號 (Reset) - 對應板子上的 Switch 0
 # rst_n 是低電位重置 (Active Low)
