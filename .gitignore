@@ -28,4 +28,13 @@ vsim.wlf
 *.hex
 *.disasm
 *.map
+*.ocompile_commands.json
+
+# 編譯生成文件
 *.o
+compile_commands.json
+# 其他臨時文件
+verify.o
+minitest.o
+
+.vscode/

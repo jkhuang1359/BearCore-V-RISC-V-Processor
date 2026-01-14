@@ -34,19 +34,33 @@ SECTIONS
     } > ROM    
 
     /* 🏆 4. 資料段：搬家到 RAM 區塊 (0x10000 開始) */
-    .data : {
-        . = ALIGN(4);
+    /* 需要定義符號供啟動代碼使用 */
+    .data : ALIGN(8) {
+        _data_vma_start = .;          /* RAM 中的起始地址 */
         *(.data .data.*)
         *(.sdata .sdata.*)
-    } > RAM AT > ROM  /* 加載位址(LMA)在 ROM，運行位址(VMA)在 RAM */
+        . = ALIGN(8);
+        _data_vma_end = .;            /* RAM 中的結束地址 */
+    } > RAM AT > ROM                  /* 加載位址(LMA)在 ROM，運行位址(VMA)在 RAM */
 
-    .bss : {
-        . = ALIGN(4);
+    /* 定義 ROM 中數據的起始地址 */
+    _data_lma_start = LOADADDR(.data);
+
+    .bss : ALIGN(4) {
+        _bss_start = .;
         *(.bss .bss.*)
         *(COMMON)
+        . = ALIGN(4);
+        _bss_end = .;
     } > RAM
 
     /* 🏆 堆疊頂端：指向妳那顆 64KB RAM 的最高處 */
     /* 0x4000 + 64K = 0x14000，我們留一點安全邊界設在 0xF000 */
     _stack_top = 0x0001F000;
+
+    /* 可選：添加調試符號 */
+    /DISCARD/ : {
+        *(.comment)
+        *(.riscv.attributes)
+    }    
 }

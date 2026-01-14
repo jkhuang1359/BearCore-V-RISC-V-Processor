@@ -5,7 +5,44 @@
 _start:
     # 1. 初始化堆疊
     li sp, 0x0001F000
+
+    # 1. 初始化堆疊
+    # la sp, _stack_top
     
+    # 2. 複製 .data 段從 ROM 到 RAM
+    # 使用連結腳本定義的符號
+    la t0, _data_lma_start    # ROM 中的起始地址
+    la t1, _data_vma_start    # RAM 中的起始地址
+    la t2, _data_vma_end      # RAM 中的結束地址
+    
+    # 檢查 .data 段是否為空
+    beq t1, t2, copy_data_done
+    
+copy_data_loop:
+    # 從 ROM 讀取一個字
+    lw t3, 0(t0)
+    # 寫入 RAM
+    sw t3, 0(t1)
+    # 更新指針
+    addi t0, t0, 4
+    addi t1, t1, 4
+    # 檢查是否完成
+    blt t1, t2, copy_data_loop
+    
+copy_data_done:
+    
+    # 3. 清零 .bss 段
+    la t0, _bss_start
+    la t1, _bss_end
+    
+    beq t0, t1, clear_bss_done
+    
+clear_bss_loop:
+    sw zero, 0(t0)
+    addi t0, t0, 4
+    blt t0, t1, clear_bss_loop
+    
+clear_bss_done:
     # 2. 清除 sscratch (良好習慣)
     csrw sscratch, x0
     
@@ -33,6 +70,21 @@ exception_entry:
     # 🐻 關鍵修正：加入 NOP 防止 Pipeline Hazard
     # 如果 addi sp 的結果來不及 Forward 給 sw，sw 會寫錯位置導致崩潰
     # =========================================================
+    # 立即禁用中斷，防止嵌套
+    csrr t0, mstatus
+    li t1, ~(1 << 3)  # 清除MIE位
+    and t0, t0, t1
+    csrw mstatus, t0    
+
+    # 保存當前 mepc 到一個固定地址用於除錯
+    li t2, 0x00018000
+    csrr t3, mepc
+    sw t3, 0(t2)
+    
+    # 保存 mcause
+    csrr t3, mcause
+    sw t3, 4(t2)
+
     addi sp, sp, -128
     nop
     nop
