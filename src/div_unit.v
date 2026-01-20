@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "include/riscv_defines.vh"
 
 // =============================================================================
 // 除法器單元模組 (Division Unit)

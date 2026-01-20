@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "include/riscv_defines.vh"
 
 // =============================================================================
 // 算術邏輯單元 (ALU)
@@ -37,26 +38,26 @@ module arithmetic_logic_unit (
     // ============================
     
     // 基礎運算操作碼
-    localparam ALU_OP_ADD    = 4'b0000;  // 加法
-    localparam ALU_OP_SUB    = 4'b1000;  // 減法
-    localparam ALU_OP_AND    = 4'b0111;  // 邏輯與
-    localparam ALU_OP_OR     = 4'b0110;  // 邏輯或
-    localparam ALU_OP_XOR    = 4'b0100;  // 邏輯互斥或
-    localparam ALU_OP_SLL    = 4'b0001;  // 邏輯左移
-    localparam ALU_OP_SRL    = 4'b0101;  // 邏輯右移
-    localparam ALU_OP_SRA    = 4'b1101;  // 算術右移
-    localparam ALU_OP_SLT    = 4'b0010;  // 有符號小於比較
-    localparam ALU_OP_SLTU   = 4'b0011;  // 無符號小於比較
+    //localparam ALU_OP_ADD    = 4'b0000;  // 加法
+    //localparam ALU_OP_SUB    = 4'b1000;  // 減法
+    //localparam ALU_OP_AND    = 4'b0111;  // 邏輯與
+    //localparam ALU_OP_OR     = 4'b0110;  // 邏輯或
+    //localparam ALU_OP_XOR    = 4'b0100;  // 邏輯互斥或
+    //localparam ALU_OP_SLL    = 4'b0001;  // 邏輯左移
+    //localparam ALU_OP_SRL    = 4'b0101;  // 邏輯右移
+    //localparam ALU_OP_SRA    = 4'b1101;  // 算術右移
+    //localparam ALU_OP_SLT    = 4'b0010;  // 有符號小於比較
+    //localparam ALU_OP_SLTU   = 4'b0011;  // 無符號小於比較
     
     // 乘法擴展操作碼
-    localparam ALU_OP_MUL    = 4'd9;     // 乘法 (低32位)
-    localparam ALU_OP_MULH   = 4'd10;    // 乘法 (高32位，有符號×有符號)
-    localparam ALU_OP_MULHSU = 4'd11;    // 乘法 (高32位，有符號×無符號)
-    localparam ALU_OP_MULHU  = 4'd12;    // 乘法 (高32位，無符號×無符號)
+    //localparam ALU_OP_MUL    = 4'd9;     // 乘法 (低32位)
+    //localparam ALU_OP_MULH   = 4'd10;    // 乘法 (高32位，有符號×有符號)
+    //localparam ALU_OP_MULHSU = 4'd11;    // 乘法 (高32位，有符號×無符號)
+    //localparam ALU_OP_MULHU  = 4'd12;    // 乘法 (高32位，無符號×無符號)
     
     // 除法運算操作碼
-    localparam ALU_OP_DIV    = 4'd14;    // 除法
-    localparam ALU_OP_REM    = 4'd15;    // 餘數
+    //localparam ALU_OP_DIV    = 4'd14;    // 除法
+    //localparam ALU_OP_REM    = 4'd15;    // 餘數
     
     // ============================
     // 2. 內部訊號宣告
@@ -108,10 +109,10 @@ module arithmetic_logic_unit (
             multiplication_busy_r <= 1'b1;  // 開始運算
             
             case (alu_operation_i)
-                ALU_OP_MUL:    multiplication_result_r <= $signed(operand_a_i) * $signed(operand_b_i);      // 有符號乘法
-                ALU_OP_MULH:   multiplication_result_r <= $signed(operand_a_i) * $signed(operand_b_i);      // 有符號乘法 (高32位)
-                ALU_OP_MULHSU: multiplication_result_r <= $signed(operand_a_i) * $signed({1'b0, operand_b_i});  // 有符號×無符號
-                ALU_OP_MULHU:  multiplication_result_r <= operand_a_i * operand_b_i;                        // 無符號乘法
+                `ALU_OP_MUL:    multiplication_result_r <= $signed(operand_a_i) * $signed(operand_b_i);      // 有符號乘法
+                `ALU_OP_MULH:   multiplication_result_r <= $signed(operand_a_i) * $signed(operand_b_i);      // 有符號乘法 (高32位)
+                `ALU_OP_MULHSU: multiplication_result_r <= $signed(operand_a_i) * $signed({1'b0, operand_b_i});  // 有符號×無符號
+                `ALU_OP_MULHU:  multiplication_result_r <= operand_a_i * operand_b_i;                        // 無符號乘法
             endcase
         end else begin
             multiplication_busy_r <= 1'b0;  // 運算完成
@@ -134,7 +135,7 @@ module arithmetic_logic_unit (
                 stall_request_o = 1'b0;
                 
                 case (alu_operation_i)
-                    ALU_OP_MUL:  result_o = multiplication_result_r[31:0];   // 乘法低32位
+                    `ALU_OP_MUL:  result_o = multiplication_result_r[31:0];   // 乘法低32位
                     default:     result_o = multiplication_result_r[63:32];  // 乘法高32位
                 endcase
             end else begin
@@ -143,10 +144,10 @@ module arithmetic_logic_unit (
             end
         end 
         // 檢查是否為除法或取餘操作
-        else if (alu_operation_i == ALU_OP_DIV || alu_operation_i == ALU_OP_REM) begin
+        else if (alu_operation_i == `ALU_OP_DIV || alu_operation_i == `ALU_OP_REM) begin
             if (division_ready_w) begin
                 // 除法運算完成
-                result_o = (alu_operation_i == ALU_OP_DIV) ? division_quotient_w : division_remainder_w;
+                result_o = (alu_operation_i == `ALU_OP_DIV) ? division_quotient_w : division_remainder_w;
                 stall_request_o = 1'b0;
                 division_start_r = 1'b0;
             end else begin
@@ -163,20 +164,20 @@ module arithmetic_logic_unit (
         // 基礎算術邏輯運算
         else begin
             case (alu_operation_i)
-                ALU_OP_ADD:  result_o = operand_a_i + operand_b_i;                     // 加法
-                ALU_OP_SUB:  result_o = operand_a_i - operand_b_i;                     // 減法
-                ALU_OP_AND:  result_o = operand_a_i & operand_b_i;                     // 邏輯與
-                ALU_OP_OR:   result_o = operand_a_i | operand_b_i;                     // 邏輯或
-                ALU_OP_XOR:  result_o = operand_a_i ^ operand_b_i;                     // 邏輯互斥或
-                ALU_OP_SLL:  result_o = operand_a_i << operand_b_i[4:0];               // 邏輯左移
-                ALU_OP_SRL:  result_o = operand_a_i >> operand_b_i[4:0];               // 邏輯右移
-                ALU_OP_SRA:  result_o = signed_operand_a_w >>> operand_b_i[4:0];       // 算術右移
+                `ALU_OP_ADD:  result_o = operand_a_i + operand_b_i;                     // 加法
+                `ALU_OP_SUB:  result_o = operand_a_i - operand_b_i;                     // 減法
+                `ALU_OP_AND:  result_o = operand_a_i & operand_b_i;                     // 邏輯與
+                `ALU_OP_OR:   result_o = operand_a_i | operand_b_i;                     // 邏輯或
+                `ALU_OP_XOR:  result_o = operand_a_i ^ operand_b_i;                     // 邏輯互斥或
+                `ALU_OP_SLL:  result_o = operand_a_i << operand_b_i[4:0];               // 邏輯左移
+                `ALU_OP_SRL:  result_o = operand_a_i >> operand_b_i[4:0];               // 邏輯右移
+                `ALU_OP_SRA:  result_o = signed_operand_a_w >>> operand_b_i[4:0];       // 算術右移
                 
                 // 有符號小於比較
-                ALU_OP_SLT:  result_o = (signed_operand_a_w < signed_operand_b_w) ? 32'd1 : 32'd0;
+                `ALU_OP_SLT:  result_o = (signed_operand_a_w < signed_operand_b_w) ? 32'd1 : 32'd0;
                 
                 // 無符號小於比較  
-                ALU_OP_SLTU: result_o = (operand_a_i < operand_b_i) ? 32'd1 : 32'd0;
+                `ALU_OP_SLTU: result_o = (operand_a_i < operand_b_i) ? 32'd1 : 32'd0;
                 
                 // 未定義操作碼
                 default: begin
@@ -195,7 +196,7 @@ module arithmetic_logic_unit (
     
     // 小於旗標 (用於分支指令)
     // 注意: SLTU 使用無符號比較，其他使用有符號比較
-    assign less_flag_o = (alu_operation_i == ALU_OP_SLTU) ? 
+    assign less_flag_o = (alu_operation_i == `ALU_OP_SLTU) ? 
                          (operand_a_i < operand_b_i) : 
                          ($signed(operand_a_i) < $signed(operand_b_i));
     

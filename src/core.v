@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
 
+`include "include/riscv_defines.vh"
+
 // =============================================================================
 // RISC-V 處理器核心模組
 // 功能：
@@ -57,6 +59,9 @@ module riscv_core (
     wire        load_upper_immediate_w;         // LUI 指令標誌
     wire        add_upper_immediate_to_pc_w;    // AUIPC 指令標誌
     wire        multiplication_extension_w;     // M 擴展標誌
+
+    wire [31:0] csr_read_data_from_module_w;  // CSR 模組的讀取資料
+
     
     // 暫存器讀取資料
     wire [31:0] instruction_decode_rs1_data_w;  // ID 階段的 RS1 資料
@@ -228,6 +233,9 @@ module riscv_core (
     reg  [31:0] memory_access_write_data_aligned_r; // 記憶體寫入資料對齊
     wire        uart_actual_transmit_enable_w;  // 實際 UART 發送使能
     wire        uart_register_write_w;          // UART 暫存器寫入
+    wire        uart_int_raw_o_from_intc;  
+
+    assign      uart_interrupt_raw_w = uart_int_raw_o_from_intc;
     
     // ============================
     // 17. 資料前遞與暫存器寫入
@@ -345,7 +353,7 @@ module riscv_core (
         .machine_return_taken_i(machine_return_taken_w),
         
         // CSR 讀取資料輸出
-        .csr_read_data_o(csr_read_data_w),
+        .csr_read_data_o(csr_read_data_from_module_w),
         
         // CSR 特殊暫存器輸出
         .machine_trap_vector_o(machine_trap_vector_w),
@@ -447,6 +455,7 @@ module riscv_core (
         .ready_o(division_ready_w),
         .busy_o(division_busy_w)
     );
+
     
     // ============================
     // 組合邏輯部分開始
@@ -466,14 +475,67 @@ module riscv_core (
     // ============================
     assign software_exception_w = illegal_instruction_w ||
                                  (system_instruction_w && 
-                                  (instruction_decode_inst_r == 32'h00000073 || 
-                                   instruction_decode_inst_r == 32'h00100073));
+                                  (instruction_decode_inst_r == `SYSTEM_ECALL || 
+                                   instruction_decode_inst_r == `SYSTEM_EBREAK));
     
     // ============================
     // 3. 原始中斷訊號生成
     // ============================
-    assign uart_interrupt_raw_w = (uart_receive_ready_w && uart_interrupt_enable_r[1]) ||
-                                 (!uart_busy_w && uart_interrupt_enable_r[0]);
+    // UART中斷源（從中斷控制器輸出）
+    wire uart_tx_interrupt_pending_w;  // 聲明這些信號
+    wire uart_rx_interrupt_pending_w;    
+
+    // ============================
+    // UART中斷控制器
+    // ============================
+
+    uart_interrupt_controller u_uart_intc_inst (
+        .clk_i(core_clk_i),
+        .reset_ni(core_reset_ni),
+        
+        // UART狀態輸入
+        .uart_busy_i(uart_busy_w),
+        .uart_receive_ready_i(uart_receive_ready_w),
+        .uart_read_ack_i(uart_read_acknowledge_w),
+        
+        // 軟體控制
+        .uart_ie_i(uart_interrupt_enable_r),
+        .mem_is_uart_status_i(mem_is_uart_status_w),
+        .mem_write_enable_i(memory_access_memory_write_enable_r),
+        .mem_write_data_i(memory_access_rs2_data_r),
+        .mem_load_operation_i(memory_access_load_operation_r),
+        
+        // 中斷輸出
+        .uart_tx_int_pending_o(uart_tx_interrupt_pending_w),
+        .uart_rx_int_pending_o(uart_rx_interrupt_pending_w),
+        .uart_int_raw_o(uart_int_raw_o_from_intc)
+    );   
+
+    // 更新UART中斷使能暫存器
+    always @(posedge core_clk_i or negedge core_reset_ni) begin
+        if (!core_reset_ni) begin
+            uart_interrupt_enable_r <= 32'h0;
+        end else if (memory_access_memory_write_enable_r && memory_access_valid_r && 
+                    mem_is_uart_interrupt_enable_w) begin
+            uart_interrupt_enable_r <= memory_access_rs2_data_r;
+        end
+    end
+
+    // 更新中斷掛起暫存器（用於調試）
+    reg uart_tx_int_pending_r, uart_rx_int_pending_r;
+    always @(posedge core_clk_i or negedge core_reset_ni) begin
+        if (!core_reset_ni) begin
+            uart_tx_int_pending_r <= 1'b0;
+            uart_rx_int_pending_r <= 1'b0;
+        end else begin
+            uart_tx_int_pending_r <= uart_tx_interrupt_pending_w;
+            uart_rx_int_pending_r <= uart_rx_interrupt_pending_w;
+        end
+    end     
+
+    // 最終中斷輸出
+//    assign uart_interrupt_raw_w = (uart_tx_interrupt_pending_r && uart_interrupt_enable_r[0]) ||
+//                                (uart_rx_interrupt_pending_r && uart_interrupt_enable_r[1]);
     
     assign timer_interrupt_raw_w = (machine_time_r >= machine_time_compare_r);
     
@@ -511,7 +573,7 @@ module riscv_core (
     // 8. MRET 指令偵測
     // ============================
     assign machine_return_taken_w = (system_instruction_w && 
-                                     (instruction_decode_inst_r == 32'h30200073));
+                                     (instruction_decode_inst_r == `SYSTEM_MRET));
     
     // ============================
     // 9. 流水線清除訊號
@@ -536,20 +598,16 @@ module riscv_core (
     // ============================
     // 11. 記憶體地址解碼邏輯
     // ============================
-    assign is_ram_address_w = (memory_access_alu_result_r >= 32'h00010000) && 
-                              (memory_access_alu_result_r <= 32'h0001FFFF);
-    
-    assign is_rom_data_access_w = (memory_access_alu_result_r >= 32'h00000000) && 
-                                  (memory_access_alu_result_r < 32'h00010000);
-    
+    assign is_ram_address_w = `IS_RAM_ADDRESS(memory_access_alu_result_r);
+    assign is_rom_data_access_w = `IS_ROM_ADDRESS(memory_access_alu_result_r);    
     // UART 相關地址解碼
-    assign mem_is_uart_data_w = (memory_access_alu_result_r == 32'h10000000);
-    assign mem_is_uart_status_w = (memory_access_alu_result_r == 32'h10000004);
-    assign mem_is_cycle_counter_w = (memory_access_alu_result_r == 32'h10000008);
-    assign mem_is_instruction_counter_w = (memory_access_alu_result_r == 32'h1000000C);
-    assign mem_is_uart_interrupt_enable_w = (memory_access_alu_result_r == 32'h10000018);
-    assign mem_is_mtimecmp_low_w = (memory_access_alu_result_r == 32'h10000010);
-    assign mem_is_mtimecmp_high_w = (memory_access_alu_result_r == 32'h10000014);
+    assign mem_is_uart_data_w = (memory_access_alu_result_r == `UART_DATA_ADDR);
+    assign mem_is_uart_status_w = (memory_access_alu_result_r == `UART_STATUS_ADDR);
+    assign mem_is_cycle_counter_w = (memory_access_alu_result_r == `MTIME_L_ADDR);
+    assign mem_is_instruction_counter_w = (memory_access_alu_result_r == `MTIME_H_ADDR);
+    assign mem_is_uart_interrupt_enable_w = (memory_access_alu_result_r == `UART_IE_ADDR);
+    assign mem_is_mtimecmp_low_w = (memory_access_alu_result_r == `MTIMECMP_L_ADDR);
+    assign mem_is_mtimecmp_high_w = (memory_access_alu_result_r == `MTIMECMP_H_ADDR);
     
     // ============================
     // 12. 記憶體寫入控制邏輯
@@ -559,7 +617,7 @@ module riscv_core (
     // ============================
     // 13. UART 相關控制邏輯
     // ============================
-    assign uart_read_acknowledge_w = (memory_access_alu_result_r == 32'h10000000) && 
+    assign uart_read_acknowledge_w = (memory_access_alu_result_r == `UART_DATA_ADDR) && 
                                      memory_access_load_operation_r && memory_access_valid_r;
     
     assign uart_register_write_w = memory_access_memory_write_enable_r && mem_is_uart_data_w && 
@@ -767,9 +825,9 @@ module riscv_core (
     // ============================
     // 25. CSR 寫入控制邏輯
     // ============================
-    assign csr_write_always_w = (memory_access_csr_operation_r == 2'b00);  // CSRRW
-    assign csr_write_set_w = (memory_access_csr_operation_r == 2'b01) && (|csr_write_data_w);  // CSRRS
-    assign csr_write_clear_w = (memory_access_csr_operation_r == 2'b10) && (|csr_write_data_w); // CSRRC
+    assign csr_write_always_w = (memory_access_csr_operation_r == `CSR_OP_RW);  // CSRRW
+    assign csr_write_set_w = (memory_access_csr_operation_r == `CSR_OP_RS) && (|csr_write_data_w);  // CSRRS
+    assign csr_write_clear_w = (memory_access_csr_operation_r == `CSR_OP_RC) && (|csr_write_data_w); // CSRRC
     
     assign csr_write_enable_w = 
         memory_access_valid_r && memory_access_csr_instruction_r && 
@@ -779,9 +837,9 @@ module riscv_core (
     // 26. CSR 寫入資料生成
     // ============================
     assign csr_write_data_w =  
-        (memory_access_csr_operation_r == 2'b00) ? memory_access_csr_write_data_r :  // CSRRW
-        (memory_access_csr_operation_r == 2'b01) ? (memory_access_csr_write_data_r | csr_read_data_w) :  // CSRRS
-        (memory_access_csr_operation_r == 2'b10) ? (~memory_access_csr_write_data_r & csr_read_data_w) : // CSRRC
+        (memory_access_csr_operation_r == `CSR_OP_RW) ? memory_access_csr_write_data_r :  // CSRRW
+        (memory_access_csr_operation_r == `CSR_OP_RS) ? (memory_access_csr_write_data_r | csr_read_data_w) :  // CSRRS
+        (memory_access_csr_operation_r == `CSR_OP_RC) ? (~memory_access_csr_write_data_r & csr_read_data_w) : // CSRRC
         32'b0;
     
     // ============================
@@ -810,28 +868,28 @@ module riscv_core (
     
     always @(*) begin
         if (illegal_instruction_w) begin
-            exception_cause_r = 32'h00000002;  // 非法指令
+            exception_cause_r = `EXC_CAUSE_ILLEGAL_INST;  // 非法指令
             exception_tval_r = instruction_decode_inst_r;
         end    
         else if (system_instruction_w) begin
             case (instruction_decode_inst_r)
-                32'h00000073: begin  // ECALL
-                    exception_cause_r = 32'h0000000B;
+                `SYSTEM_ECALL: begin  // ECALL
+                    exception_cause_r = `EXC_CAUSE_ECALL_M_MODE;
                     exception_tval_r = 32'h0;
                 end
-                32'h00100073: begin  // EBREAK
-                    exception_cause_r = 32'h00000003;
+                `SYSTEM_EBREAK: begin  // EBREAK
+                    exception_cause_r = `EXC_CAUSE_BREAKPOINT;
                     exception_tval_r = 32'h0;
                 end
                 default: begin
-                    exception_cause_r = 32'h00000002;
+                    exception_cause_r = `EXC_CAUSE_ILLEGAL_INST;
                     exception_tval_r = instruction_decode_inst_r;
                 end
             endcase
         end
         else if (any_interrupt_w) begin 
-            if (timer_interrupt_final_w) exception_cause_r = 32'h80000007;  // 計時器中斷
-            else if (uart_interrupt_final_w) exception_cause_r = 32'h80000010;  // UART 中斷
+            if (timer_interrupt_final_w) exception_cause_r = `INT_CAUSE_MTI;  // 計時器中斷
+            else if (uart_interrupt_final_w) exception_cause_r = `INT_CAUSE_UART;  // UART 中斷
             else exception_cause_r = 32'h0;
             
             exception_tval_r = 32'h0;
@@ -1098,38 +1156,522 @@ module riscv_core (
     // 模擬調試區塊 (僅在模擬時生效)
     // ============================
 `ifdef SIMULATION
-    // 監控計時器中斷相關訊號
     always @(posedge core_clk_i) begin
-        // 監控 mtime 和 mtimecmp
-        if (cycle_counter_r < 1000 && cycle_counter_r % 100 == 0) begin
-            $display("[TIMER DEBUG] cycle=%d, mtime=%d, mtimecmp=%d, raw_int=%b, final_int=%b",
-                    cycle_counter_r, machine_time_r, machine_time_compare_r,
-                    timer_interrupt_raw_w, timer_interrupt_final_w);
-            $display("[TIMER DEBUG] mie[7]=%b, mstatus_mie=%b",
-                    machine_interrupt_enable_w[7], machine_status_interrupt_enable_w);
+        // 监控UART中断相关信号
+        static int last_uart_irq = 0;
+        if (uart_int_raw_o_from_intc != last_uart_irq) begin
+            $display("[UART IRQ DEBUG] Raw interrupt changed: %b -> %b at time %0t", 
+                    last_uart_irq, uart_int_raw_o_from_intc, $time);
+            $display("[UART IRQ DEBUG] TX pending: %b, RX pending: %b, IE: %h",
+                    uart_tx_interrupt_pending_w, uart_rx_interrupt_pending_w,
+                    uart_interrupt_enable_r);
+            last_uart_irq = uart_int_raw_o_from_intc;
         end
         
-        // 當中斷觸發時顯示詳細資訊
-        if (timer_interrupt_final_w) begin
-            $display("[TIMER IRQ] Timer interrupt triggered at cycle %d", cycle_counter_r);
-            $display("[TIMER IRQ] mtime=%d, mtimecmp=%d", machine_time_r, machine_time_compare_r);
-            $display("[TIMER IRQ] mie=%h, mstatus=%h", machine_interrupt_enable_w, 
-                    u_csr_registers_inst.reg_mstatus);
-        end
-        
-        // 監控 CSR 寫入
-        if (memory_access_memory_write_enable_r && memory_access_valid_r) begin
-            if (mem_is_mtimecmp_low_w) begin
-                $display("[MTIMECMP] Write low: %h", memory_access_rs2_data_r);
-            end
-            if (mem_is_mtimecmp_high_w) begin
-                $display("[MTIMECMP] Write high: %h", memory_access_rs2_data_r);
-            end
-            if (mem_is_uart_interrupt_enable_w) begin
-                $display("[UART IE] Write: %h", memory_access_rs2_data_r);
-            end
+        // 当中断触发时
+        if (final_exception_taken_w && uart_interrupt_final_w) begin
+            $display("[UART IRQ] UART interrupt taken at cycle %d", cycle_counter_r);
         end
     end
 `endif
+
+// ============================
+// 24. 監控與除錯系統
+// ============================
+
+// 監控控制暫存器
+reg [31:0] monitor_control_r;        // 監控控制暫存器
+reg [31:0] pipeline_stats_r;         // 流水線統計暫存器
+reg [31:0] memory_stats_r;           // 記憶體統計暫存器
+reg [31:0] stack_stats_r;            // 堆疊統計暫存器
+reg [31:0] perf_counters_r[0:7];     // 性能計數器陣列
+reg [31:0] debug_trace_control_r;    // 除錯追蹤控制
+
+// 統計計數器
+reg [31:0] if_stall_counter_r;       // IF 階段停滯計數器
+reg [31:0] id_stall_counter_r;       // ID 階段停滯計數器
+reg [31:0] ex_stall_counter_r;       // EX 階段停滯計數器
+reg [31:0] mem_stall_counter_r;      // MEM 階段停滯計數器
+reg [31:0] wb_stall_counter_r;       // WB 階段停滯計數器
+reg [31:0] total_stall_counter_r;    // 總停滯週期計數器
+
+reg [31:0] ram_read_counter_r;       // RAM 讀取計數器
+reg [31:0] ram_write_counter_r;      // RAM 寫入計數器
+reg [31:0] rom_read_counter_r;       // ROM 讀取計數器
+reg [31:0] uart_read_counter_r;      // UART 讀取計數器
+reg [31:0] uart_write_counter_r;     // UART 寫入計數器
+
+reg [31:0] branch_taken_counter_r;   // 分支成立計數器
+reg [31:0] branch_mispred_counter_r; // 分支預測錯誤計數器
+reg [31:0] jump_counter_r;           // 跳躍指令計數器
+reg [31:0] exception_counter_r;      // 例外發生計數器
+reg [31:0] interrupt_counter_r;      // 中斷發生計數器
+
+// 堆疊監控
+reg [31:0] stack_min_r;              // 堆疊最小地址（使用深度）
+reg [31:0] stack_max_r;              // 堆疊最大地址（起始地址）
+reg [31:0] stack_high_watermark_r;   // 堆疊高水位標記
+reg [31:0] stack_current_usage_r;    // 當前堆疊使用量
+reg        stack_overflow_detected_r;// 堆疊溢位偵測標誌
+
+// 流水線氣泡計數器
+reg [31:0] pipeline_bubble_counter_r;// 流水線氣泡計數器
+reg [31:0] data_hazard_counter_r;    // 資料相依性危險計數器
+reg [31:0] control_hazard_counter_r; // 控制相依性危險計數器
+
+// ============================
+// 流水線監控邏輯
+// ============================
+
+// 流水線停滯監控
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        if_stall_counter_r <= 32'h0;
+        id_stall_counter_r <= 32'h0;
+        ex_stall_counter_r <= 32'h0;
+        mem_stall_counter_r <= 32'h0;
+        wb_stall_counter_r <= 32'h0;
+        total_stall_counter_r <= 32'h0;
+    end else begin
+        // IF 階段停滯（PC 沒有更新）
+        if (pipeline_stall_r && next_program_counter_w == program_counter_r) begin
+            if_stall_counter_r <= if_stall_counter_r + 1;
+        end
+        
+        // ID 階段停滯
+        if (pipeline_stall_r && instruction_decode_valid_r) begin
+            id_stall_counter_r <= id_stall_counter_r + 1;
+        end
+        
+        // EX 階段停滯
+        if (alu_stall_request_w) begin
+            ex_stall_counter_r <= ex_stall_counter_r + 1;
+        end
+        
+        // MEM 階段停滯（等待記憶體）
+        if (memory_access_load_operation_r && memory_access_valid_r) begin
+            mem_stall_counter_r <= mem_stall_counter_r + 1;
+        end
+        
+        // WB 階段停滯（暫存器寫入衝突）
+        if (write_back_register_write_enable_r && 
+            ((write_back_rd_address_r == rs1_address_w && rs1_address_w != 0) ||
+             (write_back_rd_address_r == rs2_address_w && rs2_address_w != 0))) begin
+            wb_stall_counter_r <= wb_stall_counter_r + 1;
+        end
+        
+        // 總停滯計數
+        if (pipeline_stall_r) begin
+            total_stall_counter_r <= total_stall_counter_r + 1;
+        end
+    end
+end
+
+// 流水線氣泡監控
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        pipeline_bubble_counter_r <= 32'h0;
+    end else if (load_hazard_w && !pipeline_stall_r) begin
+        // 載入危險導致氣泡
+        pipeline_bubble_counter_r <= pipeline_bubble_counter_r + 1;
+    end
+end
+
+// 資料相依性危險監控
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        data_hazard_counter_r <= 32'h0;
+    end else if (load_hazard_w) begin
+        data_hazard_counter_r <= data_hazard_counter_r + 1;
+    end
+end
+
+// 控制相依性危險監控
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        control_hazard_counter_r <= 32'h0;
+    end else if (execute_take_branch_w) begin
+        control_hazard_counter_r <= control_hazard_counter_r + 1;
+    end
+end
+
+// ============================
+// 分支與跳躍監控
+// ============================
+
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        branch_taken_counter_r <= 32'h0;
+        branch_mispred_counter_r <= 32'h0;
+        jump_counter_r <= 32'h0;
+    end else begin
+        // 分支成立計數
+        if (execute_branch_operation_r && branch_condition_met_r) begin
+            branch_taken_counter_r <= branch_taken_counter_r + 1;
+        end
+        
+        // 分支預測錯誤（需要刷新流水線）
+        if (execute_take_branch_w && pipeline_flush_w) begin
+            branch_mispred_counter_r <= branch_mispred_counter_r + 1;
+        end
+        
+        // 跳躍指令計數
+        if (execute_jump_and_link_r || execute_jump_and_link_register_r) begin
+            jump_counter_r <= jump_counter_r + 1;
+        end
+    end
+end
+
+// ============================
+// RAM 存取監控
+// ============================
+
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        ram_read_counter_r <= 32'h0;
+        ram_write_counter_r <= 32'h0;
+    end else begin
+        // RAM 讀取計數
+        if (memory_access_load_operation_r && is_ram_address_w) begin
+            ram_read_counter_r <= ram_read_counter_r + 1;
+            
+            // 監控 RAM 讀取地址範圍
+            if (monitor_control_r[0]) begin // 啟用地址範圍檢查
+                if (memory_access_alu_result_r < `RAM_BASE_ADDR || 
+                    memory_access_alu_result_r >= (`RAM_BASE_ADDR + `RAM_SIZE)) begin
+                    $display("[MEM MONITOR] RAM 讀取地址越界: %h", memory_access_alu_result_r);
+                end
+            end
+        end
+        
+        // RAM 寫入計數
+        if (actual_memory_write_enable_w) begin
+            ram_write_counter_r <= ram_write_counter_r + 1;
+            
+            // 監控 RAM 寫入地址範圍
+            if (monitor_control_r[0]) begin
+                if (memory_access_alu_result_r < `RAM_BASE_ADDR || 
+                    memory_access_alu_result_r >= (`RAM_BASE_ADDR + `RAM_SIZE)) begin
+                    $display("[MEM MONITOR] RAM 寫入地址越界: %h", memory_access_alu_result_r);
+                end
+            end
+            
+            // 監控寫入資料模式（可選）
+            if (monitor_control_r[8]) begin  // 新增一個控制位
+                // 記憶體寫入監控
+                if (monitor_control_r[1]) begin // 啟用資料模式檢查
+                    if (memory_access_write_data_aligned_r == 32'h0) begin
+                        $display("[MEM MONITOR] 寫入零值到地址: %h", memory_access_alu_result_r);
+                    end
+                end
+            end
+        end
+    end
+end
+
+// ============================
+// ROM 讀取監控
+// ============================
+
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        rom_read_counter_r <= 32'h0;
+    end else begin
+        // 指令讀取（IF 階段）
+        if (program_counter_r >= `ROM_BASE_ADDR && 
+            program_counter_r < (`ROM_BASE_ADDR + `ROM_SIZE)) begin
+            rom_read_counter_r <= rom_read_counter_r + 1;
+        end
+        
+        // 資料讀取（MEM 階段）
+        if (is_rom_data_access_w && !memory_access_memory_write_enable_r) begin
+            rom_read_counter_r <= rom_read_counter_r + 1;
+            
+            // 監控 ROM 資料讀取地址
+            if (monitor_control_r[2]) begin // 啟用 ROM 讀取監控
+                if (memory_access_alu_result_r < `ROM_BASE_ADDR || 
+                    memory_access_alu_result_r >= (`ROM_BASE_ADDR + `ROM_SIZE)) begin
+                    $display("[ROM MONITOR] ROM 資料讀取地址越界: %h", memory_access_alu_result_r);
+                end
+            end
+        end
+    end
+end
+
+// ============================
+// UART 存取監控
+// ============================
+
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        uart_read_counter_r <= 32'h0;
+        uart_write_counter_r <= 32'h0;
+    end else begin
+        // UART 讀取計數
+        if (uart_read_acknowledge_w) begin
+            uart_read_counter_r <= uart_read_counter_r + 1;
+        end
+        
+        // UART 寫入計數
+        if (uart_actual_transmit_enable_w) begin
+            uart_write_counter_r <= uart_write_counter_r + 1;
+            
+            // 監控 UART 發送資料
+            if (monitor_control_r[3]) begin // 啟用 UART 資料監控
+                $display("[UART MONITOR] 發送字元: %c (0x%h)", 
+                         memory_access_rs2_data_r[7:0], memory_access_rs2_data_r[7:0]);
+            end
+        end
+    end
+end
+
+// ============================
+// 堆疊監控系統
+// ============================
+
+// 堆疊監控初始化
+task initialize_stack_monitor;
+    input [31:0] stack_base;
+    input [31:0] stack_size;
+begin
+    stack_max_r = stack_base;               // 堆疊底部（最高地址）
+    stack_min_r = stack_base - stack_size;  // 堆疊頂部（最低地址）
+    stack_high_watermark_r = stack_base;    // 初始高水位標記
+    stack_current_usage_r = 0;              // 初始使用量為 0
+    stack_overflow_detected_r = 0;          // 清除溢位標誌
+end
+endtask
+
+// 監控堆疊指針變化
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        stack_current_usage_r <= 32'h0;
+        stack_high_watermark_r <= 32'h0;
+        stack_overflow_detected_r <= 1'b0;
+    end else begin
+        // 檢測 x2 寄存器（sp）的寫入
+        if (write_back_valid_r && write_back_register_write_enable_r && 
+            write_back_rd_address_r == 5'h2) begin
+            
+            // 計算堆疊使用量（假設堆疊向低地址增長）
+            if (write_back_data_w <= stack_max_r && write_back_data_w >= stack_min_r) begin
+                // 正常堆疊範圍內
+                stack_current_usage_r <= stack_max_r - write_back_data_w;
+                
+                // 更新高水位標記
+                if (write_back_data_w < stack_high_watermark_r) begin
+                    stack_high_watermark_r <= write_back_data_w;
+                end
+                
+                // 檢查堆疊溢位（接近堆疊頂部）
+                if (write_back_data_w < (stack_min_r + 32)) begin
+                    //$display("[STACK MONITOR] 警告：堆疊接近溢位！SP=%h, 剩餘空間=%h",
+                    //         write_back_data_w, write_back_data_w - stack_min_r);
+                end
+            end else begin
+                // 堆疊指針越界
+                stack_overflow_detected_r <= 1'b1;
+                //$display("[STACK MONITOR] 錯誤：堆疊指針越界！SP=%h, 有效範圍=[%h,%h]",
+                //         write_back_data_w, stack_min_r, stack_max_r);
+            end
+        end
+    end
+end
+
+// 堆疊使用率計算
+function [31:0] calculate_stack_usage_percentage;
+    input [31:0] stack_size;
+begin
+    if (stack_size == 0) begin
+        calculate_stack_usage_percentage = 0;
+    end else begin
+        // 計算使用百分比（0-100）
+        calculate_stack_usage_percentage = (stack_current_usage_r * 100) / stack_size;
+    end
+end
+endfunction
+
+// ============================
+// 例外與中斷監控
+// ============================
+
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        exception_counter_r <= 32'h0;
+        interrupt_counter_r <= 32'h0;
+    end else begin
+        // 例外發生計數
+        if (software_exception_w || illegal_instruction_w) begin
+            exception_counter_r <= exception_counter_r + 1;
+            
+            // 例外詳細資訊記錄
+            if (monitor_control_r[4]) begin // 啟用例外監控
+                $display("[EXCEPTION MONITOR] 例外發生: PC=%h, 原因=%h, 指令=%h",
+                         instruction_decode_pc_r, exception_cause_r, instruction_decode_inst_r);
+            end
+        end
+        
+        // 中斷發生計數
+        if (final_exception_taken_w && (timer_interrupt_final_w || uart_interrupt_final_w)) begin
+            interrupt_counter_r <= interrupt_counter_r + 1;
+            
+            // 中斷詳細資訊記錄
+            if (monitor_control_r[5]) begin // 啟用中斷監控
+                $display("[INTERRUPT MONITOR] 中斷發生: 類型=%s, PC=%h",
+                         timer_interrupt_final_w ? "定時器" : "UART", trap_return_pc_w);
+            end
+        end
+    end
+end
+
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        for (int i = 0; i < 8; i = i + 1) begin
+            perf_counters_r[i] <= 32'h0;
+        end
+    end else begin
+        // 計數器 0: 總指令數
+        if (write_back_valid_r) begin
+            perf_counters_r[0] <= perf_counters_r[0] + 1;
+        end
+        
+        // 計數器 1: 總週期數
+        perf_counters_r[1] <= perf_counters_r[1] + 1;
+        
+        // 計數器 2: 停滯週期數
+        if (pipeline_stall_r) begin
+            perf_counters_r[2] <= perf_counters_r[2] + 1;
+        end
+        
+        // 計數器 3: 記憶體存取次數
+        if (ram_read_counter_r + ram_write_counter_r > perf_counters_r[3]) begin
+            perf_counters_r[3] <= ram_read_counter_r + ram_write_counter_r;
+        end
+        
+        // 計數器 4: 分支預測錯誤率（每 1000 條指令）
+        if (perf_counters_r[0] % 1000 == 0 && perf_counters_r[0] > 0) begin
+            if (branch_mispred_counter_r > 0) begin
+                perf_counters_r[4] <= (branch_mispred_counter_r * 100) / 1000;
+            end
+        end
+        
+        // 計數器 5: CPI（Cycles Per Instruction）
+        if (perf_counters_r[0] > 0) begin
+            perf_counters_r[5] <= perf_counters_r[1] / perf_counters_r[0];
+        end
+    end
+end
+
+// ============================
+// 監控 CSR 暫存器存取邏輯
+// ============================
+
+wire is_monitor_csr_w = (memory_access_csr_address_r >= 12'h7C0 && 
+                         memory_access_csr_address_r <= 12'h7CF);
+
+// ============================
+// CSR 讀取資料多工器
+// ============================
+
+reg [31:0] monitor_csr_read_data_w;
+
+// 監控 CSR 讀取邏輯
+always @(*) begin
+    if (memory_access_csr_instruction_r && is_monitor_csr_w) begin
+        case (memory_access_csr_address_r)
+            `CSR_MONITOR_CTRL:    monitor_csr_read_data_w = monitor_control_r;
+            `CSR_PIPELINE_STATS:  monitor_csr_read_data_w = {total_stall_counter_r[15:0], 
+                                                     pipeline_bubble_counter_r[15:0]};
+            `CSR_MEMORY_STATS:    monitor_csr_read_data_w = {ram_read_counter_r[15:0], 
+                                                     ram_write_counter_r[15:0]};
+            `CSR_STACK_STATS:     monitor_csr_read_data_w = stack_current_usage_r;
+            `CSR_PERF_COUNTERS:   begin
+                // 根據地址低3位選擇性能計數器
+                case (memory_access_csr_address_r[2:0])
+                    3'b000: monitor_csr_read_data_w = perf_counters_r[0];
+                    3'b001: monitor_csr_read_data_w = perf_counters_r[1];
+                    3'b010: monitor_csr_read_data_w = perf_counters_r[2];
+                    3'b011: monitor_csr_read_data_w = perf_counters_r[3];
+                    3'b100: monitor_csr_read_data_w = perf_counters_r[4];
+                    3'b101: monitor_csr_read_data_w = perf_counters_r[5];
+                    3'b110: monitor_csr_read_data_w = perf_counters_r[6];
+                    3'b111: monitor_csr_read_data_w = perf_counters_r[7];
+                    default: monitor_csr_read_data_w = 32'h0;
+                endcase
+            end
+            `CSR_DEBUG_TRACE:     monitor_csr_read_data_w = debug_trace_control_r;
+            default:              monitor_csr_read_data_w = 32'h0;
+        endcase
+    end else begin
+        monitor_csr_read_data_w = 32'h0;
+    end
+end
+
+// 最終 CSR 讀取資料選擇
+assign csr_read_data_w = (memory_access_csr_instruction_r && is_monitor_csr_w) ? 
+                         monitor_csr_read_data_w : 
+                         csr_read_data_from_module_w;
+
+// 監控 CSR 寫入處理
+always @(posedge core_clk_i or negedge core_reset_ni) begin
+    if (!core_reset_ni) begin
+        monitor_control_r <= 32'h0;
+        debug_trace_control_r <= 32'h0;
+    end else if (csr_write_enable_w && is_monitor_csr_w) begin
+        case (memory_access_csr_address_r)
+            `CSR_MONITOR_CTRL:    monitor_control_r <= csr_write_data_w;
+            `CSR_DEBUG_TRACE:     debug_trace_control_r <= csr_write_data_w;
+        endcase
+    end
+end
+
+// ============================
+// 指令執行追蹤系統
+// ============================
+
+reg [31:0] trace_buffer_r[0:63];    // 追蹤緩衝區
+reg [5:0]  trace_index_r;           // 追蹤索引
+reg        trace_enabled_r;         // 追蹤啟用標誌
+
+always @(posedge core_clk_i) begin
+    if (!core_reset_ni) begin
+        trace_index_r <= 6'h0;
+        trace_enabled_r <= 1'b0;
+    end else begin
+        // 更新追蹤啟用狀態
+        trace_enabled_r <= debug_trace_control_r[0];
+        
+        // 記錄指令執行追蹤
+        if (trace_enabled_r && write_back_valid_r && write_back_register_write_enable_r) begin
+            // 格式: [31:26] 階段標記, [25:21] 目標寄存器, [20:0] 資料或PC
+            trace_buffer_r[trace_index_r] = {
+                6'h1,  // WB 階段標記
+                write_back_rd_address_r,
+                21'h0
+            };
+            
+            // 如果是 JAL/JALR，記錄返回地址
+            if (write_back_jump_or_jalr_r) begin
+                trace_buffer_r[trace_index_r][20:0] = write_back_pc_plus_4_r[20:0];
+            end
+            
+            trace_index_r <= trace_index_r + 1;
+            
+            // 緩衝區循環
+            if (trace_index_r == 6'd63) begin
+                trace_index_r <= 6'h0;
+                
+                // 輸出追蹤資訊（模擬時）
+                `ifdef SIMULATION
+                $display("[TRACE] 追蹤緩衝區已滿，輸出最近64條記錄");
+                for (int i = 0; i < 64; i = i + 1) begin
+                    $display("  [%2d] %h", i, trace_buffer_r[i]);
+                end
+                `endif
+            end
+        end
+    end
+end
+
     
 endmodule

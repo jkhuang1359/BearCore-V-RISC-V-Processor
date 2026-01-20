@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "include/riscv_defines.vh"
 
 // =============================================================================
 // 暫存器檔案模組 (Register File)

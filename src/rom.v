@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "include/riscv_defines.vh"
 
 // =============================================================================
 // 指令記憶體模組 (ROM)
@@ -21,8 +22,8 @@ module rom (
     // ============================
     // 參數定義
     // ============================
-    parameter ROM_DEPTH = 16384;                // ROM 深度 (16KB)
-    parameter ADDR_WIDTH = 14;                  // 地址寬度 (2^14 = 16384)
+    parameter ROM_DEPTH = 32768;                // ROM 深度 (16KB)
+    parameter ADDR_WIDTH = 15;                  // 地址寬度 (2^14 = 16384)
     
     // ============================
     // 內部記憶體宣告
@@ -77,23 +78,12 @@ module rom (
         end
         
         // --------------------------------------------------
-        // 步驟 2: 載入 firmware.hex 檔案
+        // 步驟 2: 載入 firmware.hex 檔案（無範圍限制）
         // --------------------------------------------------
-        if ($test$plusargs("debug")) begin
-            $display("[ROM] 開始載入 firmware.hex 檔案");
-        end
-        
-        //$readmemh("firmware.hex", memory_array, 0, ROM_DEPTH-1);
-
-        `ifdef SIMULATION
-            $readmemh("firmware.hex" ,memory_array, 0, ROM_DEPTH-1);
-        `else
-            // 對於綜合，可能需要不同的處理方式
-            $readmemh("firmware.hex", memory_array);
-        `endif        
+        $readmemh("firmware.hex", memory_array);
         
         // --------------------------------------------------
-        // 步驟 3: 顯示前幾條指令用於調試
+        // 步驟 3: 顯示前幾條指令用於調試（可選）
         // --------------------------------------------------
         if ($test$plusargs("debug")) begin
             $display("[ROM] 載入的指令內容:");

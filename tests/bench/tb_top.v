@@ -3,10 +3,13 @@
 module tb_top();
 
     // --- 1. 參數定義 (統一 100MHz) ---
-    parameter CLK_FREQ = 100000000;        // 100 MHz
-    parameter BAUDRATE = 1152000;          
+    parameter CLK_FREQ = 100_000_000;       // 100 MHz
+    parameter BAUDRATE = 1152_000;            // 從 1152000 改為 115200        
     localparam CLK_PERIOD = 10;            // 10ns
-    localparam BIT_PERIOD = 1000000000 / BAUDRATE; 
+
+    parameter BIT_PERIOD = 1_000_000_000 / BAUDRATE; 
+    parameter SIM_TIME_MS = 10;                // 模擬時間 10ms
+    parameter MAX_CYCLES  = SIM_TIME_MS * 1000 * CLK_FREQ / 1_000_000;
 
     reg         clk;
     reg         rst_n;

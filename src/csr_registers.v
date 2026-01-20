@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-
+`include "include/riscv_defines.vh"
 // =============================================================================
 // 控制與狀態暫存器模組 (CSR Registers)
 // 功能：
@@ -41,13 +41,13 @@ module csr_registers (
     // ============================
     // 1. CSR 地址常數定義
     // ============================
-    localparam CSR_ADDR_MSTATUS  = 12'h300;  // 機器模式狀態暫存器
-    localparam CSR_ADDR_MIE      = 12'h304;  // 機器模式中斷使能
-    localparam CSR_ADDR_MTVEC    = 12'h305;  // 機器模式陷阱向量
-    localparam CSR_ADDR_MSCRATCH = 12'h340;  // 機器模式暫存暫存器
-    localparam CSR_ADDR_MEPC     = 12'h341;  // 機器模式例外程式計數器
-    localparam CSR_ADDR_MCAUSE   = 12'h342;  // 機器模式例外原因
-    localparam CSR_ADDR_MIP      = 12'h344;  // 機器模式中斷掛起
+    //localparam CSR_ADDR_MSTATUS  = 12'h300;  // 機器模式狀態暫存器
+    //localparam CSR_ADDR_MIE      = 12'h304;  // 機器模式中斷使能
+    //localparam CSR_ADDR_MTVEC    = 12'h305;  // 機器模式陷阱向量
+    //localparam CSR_ADDR_MSCRATCH = 12'h340;  // 機器模式暫存暫存器
+    //localparam CSR_ADDR_MEPC     = 12'h341;  // 機器模式例外程式計數器
+    //localparam CSR_ADDR_MCAUSE   = 12'h342;  // 機器模式例外原因
+    //localparam CSR_ADDR_MIP      = 12'h344;  // 機器模式中斷掛起
     
     // ============================
     // 2. 中斷位元位置定義
@@ -91,13 +91,13 @@ module csr_registers (
     // ============================
     always @(*) begin
         case (csr_address_i)
-            CSR_ADDR_MSTATUS:  csr_read_data_internal_r = reg_mstatus;
-            CSR_ADDR_MIE:      csr_read_data_internal_r = reg_mie;
-            CSR_ADDR_MTVEC:    csr_read_data_internal_r = reg_mtvec;
-            CSR_ADDR_MSCRATCH: csr_read_data_internal_r = reg_mscratch;
-            CSR_ADDR_MEPC:     csr_read_data_internal_r = reg_mepc;
-            CSR_ADDR_MCAUSE:   csr_read_data_internal_r = reg_mcause;
-            CSR_ADDR_MIP:      csr_read_data_internal_r = reg_mip;
+            `CSR_ADDR_MSTATUS:  csr_read_data_internal_r = reg_mstatus;
+            `CSR_ADDR_MIE:      csr_read_data_internal_r = reg_mie;
+            `CSR_ADDR_MTVEC:    csr_read_data_internal_r = reg_mtvec;
+            `CSR_ADDR_MSCRATCH: csr_read_data_internal_r = reg_mscratch;
+            `CSR_ADDR_MEPC:     csr_read_data_internal_r = reg_mepc;
+            `CSR_ADDR_MCAUSE:   csr_read_data_internal_r = reg_mcause;
+            `CSR_ADDR_MIP:      csr_read_data_internal_r = reg_mip;
             default:           csr_read_data_internal_r = 32'b0;  // 未定義 CSR
         endcase
     end
@@ -120,6 +120,9 @@ module csr_registers (
             reg_mepc <= 32'h0;            // 例外返回地址清零
             reg_mcause <= 32'h0;          // 例外原因清零
             reg_mip <= 32'h0;             // 中斷掛起暫存器清零
+
+            reg_mip[MIP_BIT_MTIMER] <= timer_interrupt_raw_i;   // 計時器中斷
+            reg_mip[MIP_BIT_UART] <= uart_interrupt_raw_i;      // UART 中斷（使用修正後的信號）            
         end else begin    
             // --------------------------------------------------
             // 優先級 1: 處理 MRET 指令 (從例外返回)
@@ -132,7 +135,7 @@ module csr_registers (
             // --------------------------------------------------
             // 優先級 2: 處理陷阱觸發 (避免與 CSR 寫入衝突)
             // --------------------------------------------------
-            else if (trap_trigger_i && !csr_write_enable_i) begin
+            else if (trap_trigger_i /*&& !csr_write_enable_i*/) begin
                 // 保存例外返回地址
                 reg_mepc <= trap_program_counter_i;
                 
@@ -148,15 +151,18 @@ module csr_registers (
             // --------------------------------------------------
             else if (csr_write_enable_i) begin
                 case (csr_address_i)
-                    CSR_ADDR_MSTATUS:  reg_mstatus <= csr_write_data_i;
-                    CSR_ADDR_MIE:      reg_mie <= csr_write_data_i;
-                    CSR_ADDR_MTVEC:    reg_mtvec <= csr_write_data_i;
-                    CSR_ADDR_MSCRATCH: reg_mscratch <= csr_write_data_i;
-                    CSR_ADDR_MEPC:     reg_mepc <= csr_write_data_i;
-                    CSR_ADDR_MCAUSE:   reg_mcause <= csr_write_data_i;
-                    CSR_ADDR_MIP: begin
+                    `CSR_ADDR_MSTATUS:  reg_mstatus <= csr_write_data_i;
+                    `CSR_ADDR_MIE:      reg_mie <= csr_write_data_i;
+                    `CSR_ADDR_MTVEC:    reg_mtvec <= csr_write_data_i;
+                    `CSR_ADDR_MSCRATCH: reg_mscratch <= csr_write_data_i;
+                    `CSR_ADDR_MEPC:     reg_mepc <= csr_write_data_i;
+                    `CSR_ADDR_MCAUSE:   reg_mcause <= csr_write_data_i;
+                    `CSR_ADDR_MIP: begin
                         // 軟體寫入 MIP
-                        reg_mip <= csr_write_data_i;
+                        // 保留軟體可寫的位，但硬體中斷位由硬體控制
+                        reg_mip <=  (csr_write_data_i & ~((1 << MIP_BIT_MTIMER) | (1 << MIP_BIT_UART))) |
+                                    (timer_interrupt_raw_i << MIP_BIT_MTIMER) |
+                                    (uart_interrupt_raw_i << MIP_BIT_UART);
                     end
                 endcase
             end
@@ -174,33 +180,20 @@ module csr_registers (
     // ============================
 `ifdef SIMULATION
     always @(posedge clk_i) begin
-        // 監控 CSR 寫入
-        if (csr_write_enable_i) begin
-            case (csr_address_i)
-                CSR_ADDR_MSTATUS: 
-                    $display("[CSR WRITE] mstatus <= 0x%08h", csr_write_data_i);
-                CSR_ADDR_MIE:
-                    $display("[CSR WRITE] mie <= 0x%08h (MTIE=%b)", csr_write_data_i, csr_write_data_i[7]);
-                CSR_ADDR_MTVEC:
-                    $display("[CSR WRITE] mtvec <= 0x%08h", csr_write_data_i);
-                CSR_ADDR_MEPC:
-                    $display("[CSR WRITE] mepc <= 0x%08h", csr_write_data_i);
-                CSR_ADDR_MCAUSE:
-                    $display("[CSR WRITE] mcause <= 0x%08h", csr_write_data_i);
-            endcase
+        // 監控UART中斷
+        if (uart_interrupt_raw_i) begin
+            $display("[CSR] UART interrupt raw signal asserted at time %0t", $time);
+            $display("[CSR] mie[16]=%b, mip[16]=%b", reg_mie[16], reg_mip[16]);
+            $display("[CSR] mstatus.mie=%b", reg_mstatus[3]);
         end
         
         // 監控陷阱處理
         if (trap_trigger_i) begin
-            $display("[TRAP] Time=%0t, PC=0x%08h, Cause=0x%08h", 
-                    $time, trap_program_counter_i, trap_cause_i);
-            $display("[TRAP] mtvec=0x%08h, mepc=0x%08h", reg_mtvec, reg_mepc);
-        end
-        
-        if (machine_return_taken_i) begin
-            $display("[MRET] Return to PC=0x%08h", reg_mepc);
+            $display("[CSR] Trap triggered at time %0t", $time);
+            $display("[CSR] Cause: 0x%08h, PC: 0x%08h", trap_cause_i, trap_program_counter_i);
         end
     end
+    
 `endif
     
 endmodule

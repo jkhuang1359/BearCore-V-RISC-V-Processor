@@ -1,4 +1,5 @@
 `timescale 1ns/1ps
+`include "include/riscv_defines.vh"
 
 // =============================================================================
 // 資料記憶體模組 (Data Memory - Block RAM)

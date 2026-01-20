@@ -125,6 +125,8 @@
 #define ENABLE_UART_TESTS          1
 #endif
 
+#define ENABLE_UART_INTERRUPT_TESTS 0  // 禁用复杂的中断测试（在模拟环境中）
+
 // ============================================================================
 // 特定測試的細粒度控制（可覆蓋類別設置）
 // ============================================================================
@@ -160,6 +162,19 @@
 // 是否在測試開始時顯示配置信息
 #ifndef SHOW_CONFIG_INFO
 #define SHOW_CONFIG_INFO 1
+#endif
+
+// 監控系統配置
+#ifndef ENABLE_STACK_MONITORING
+#define ENABLE_STACK_MONITORING 1
+#endif
+
+#ifndef ENABLE_PERFORMANCE_MONITORING
+#define ENABLE_PERFORMANCE_MONITORING 1
+#endif
+
+#ifndef SHOW_DETAILED_MONITOR_REPORT
+#define SHOW_DETAILED_MONITOR_REPORT 1
 #endif
 
 #endif // TEST_CONFIG_H

@@ -13,9 +13,13 @@
 ./src/uart_tx.v
 ./src/uart_rx.v
 ./src/div_unit.v
+./src/uart_intc.v
 
 // 🏆 2. 驗證與測試環境 (Testbench)
 ./tests/bench/tb_top.v
 
 // 🏆 3. 其他可能需要的包含路徑
 // -I./src/include
+
++incdir+./include
+
